@@ -5,7 +5,7 @@ M1 declares their contracts so templates can be validated; handlers arrive with 
 
 from typing import Any
 
-from crowley.application.registry import Registry
+from crowley.application.registry import Handler, RegisteredFunction, Registry
 from crowley.domain.common import SemVer
 from crowley.domain.functions import BINDINGS, FROM_PREV, LAZY, FunctionKind, FunctionSpec
 
@@ -210,10 +210,20 @@ BUILTIN_FUNCTIONS: tuple[FunctionSpec, ...] = (
 )
 
 
+def _handlers() -> dict[str, Handler]:
+    from crowley.stdlib import extract
+
+    return {"extract.auto": extract.auto}
+
+
 class StdlibPlugin:
     def register(self, registry: Registry) -> None:
+        handlers = _handlers()
         for spec in BUILTIN_FUNCTIONS:
-            registry.add_function(spec)
+            handler = handlers.get(spec.name)
+            registry.add_function(
+                RegisteredFunction.create(spec, handler) if handler is not None else spec
+            )
 
 
 __all__ = ["BUILTIN_FUNCTIONS", "StdlibPlugin"]

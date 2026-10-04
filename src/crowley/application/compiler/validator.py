@@ -500,7 +500,21 @@ class _Run:
             r for r in schema.get("required", []) if r not in spec.from_prev_args or r in given
         ]
         base = step.args.path if step.args is not None else step.path.key("with")
-        self.check_literal_schema(args, schema, "E303", spec.name, base, step.location)
+        checked = args
+        if args is not None:  # a literal null optional argument counts as omitted
+            checked = replace(
+                args,
+                entries=tuple(
+                    (key, node)
+                    for key, node in args.entries
+                    if not (
+                        isinstance(node, Lit)
+                        and node.value is None
+                        and key not in spec.required_args
+                    )
+                ),
+            )
+        self.check_literal_schema(checked, schema, "E303", spec.name, base, step.location)
         if args is not None:
             self.check_targets(args, spec)
             self.check_extraction(args, spec)

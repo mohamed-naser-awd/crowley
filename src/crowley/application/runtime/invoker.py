@@ -45,6 +45,7 @@ from crowley.domain.values import Value
 
 if TYPE_CHECKING:
     from crowley.application.adapters.service import AdapterService
+    from crowley.application.extractors.base import BaseExtractor
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,8 +71,10 @@ class FunctionInvoker:
         schemas: SchemaValidator,
         template: Template,
         adapters: "AdapterService | None" = None,
+        extractors: "Mapping[str, BaseExtractor] | None" = None,
     ) -> None:
         self._adapters = adapters
+        self._extractors = registry.extractors if extractors is None else extractors
         self._state = state
         self._executor = executor
         self._registry = registry
@@ -167,7 +170,9 @@ class FunctionInvoker:
     ) -> Value:
         state, spec, path = self._state, fn.spec, str(step.path)
         info = step_info(step)
-        kwargs: dict[str, Value] = dict(args)
+        required = spec.required_args
+        # a null optional argument means "not given": its default (if any) applies
+        kwargs: dict[str, Value] = {k: v for k, v in args.items() if v is not None or k in required}
         for name, schema in spec.properties.items():
             if name not in kwargs and isinstance(schema, Mapping) and "default" in schema:
                 kwargs[name] = copy.deepcopy(schema["default"])
@@ -249,6 +254,7 @@ class FunctionInvoker:
             body=body,
             defaults=self._template.defaults,
             adapters=self._adapters,
+            extractors=self._extractors,
         )
         bound = fn.binding.bind(kwargs)
         try:

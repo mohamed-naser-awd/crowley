@@ -2,13 +2,20 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from crowley.application.runtime.evaluation import evaluate_node
 from crowley.application.runtime.frame import Frame
 from crowley.application.runtime.state import RunState
 from crowley.domain.errors import ConfigurationError, ExchangeError
-from crowley.domain.events import Action, CustomEvent, LogEvent, StepInfo
+from crowley.domain.events import (
+    Action,
+    CustomEvent,
+    Event,
+    LogEvent,
+    SelectorFallback,
+    StepInfo,
+)
 from crowley.domain.functions import FunctionSpec, Outcome
 from crowley.domain.steps import Block, Expr, ListNode, Lit, MapNode, ValueNode
 from crowley.domain.values import Value
@@ -18,10 +25,12 @@ if TYPE_CHECKING:
 
     from crowley.application.adapters.base import BaseAdapter
     from crowley.application.adapters.service import AdapterService
+    from crowley.application.extractors.base import BaseExtractor
     from crowley.application.runtime.executor import Executor
     from crowley.domain.adapters import AdapterSpec
 
 _UNSET: Any = object()
+E = TypeVar("E", bound=Event)
 
 
 class Body:
@@ -64,7 +73,9 @@ class FunctionContext:
         body: Body | None = None,
         defaults: Mapping[str, ValueNode] | None = None,
         adapters: "AdapterService | None" = None,
+        extractors: "Mapping[str, BaseExtractor] | None" = None,
     ) -> None:
+        self._extractors = extractors or {}
         self._state = state
         self._spec = spec
         self._frame = frame
@@ -159,8 +170,29 @@ class FunctionContext:
             raise ExchangeError("E607", f"adapter {adapter!r} is not available in this runtime")
         return self._adapters
 
-    def extractor(self, name: str) -> Any:
-        raise ExchangeError("E607", f"extractor {name!r} is not available in this runtime")
+    def extractor(self, name: str) -> "ExtractorHandle":
+        """An extractor: ``parse``, ``select``, ``select_all``, ``read`` and ``extract``."""
+        extractor = self._extractors.get(name)
+        if extractor is None:
+            raise ExchangeError("E607", f"extractor {name!r} is not available")
+        return ExtractorHandle(self, extractor)
+
+    def extractor_for(self, media_type: str | None) -> "ExtractorHandle | None":
+        """The extractor registered for ``media_type`` (SPEC §13.10), if any."""
+        from crowley.application.extractors.engine import route
+
+        extractor = route(self._extractors, media_type)
+        return ExtractorHandle(self, extractor) if extractor is not None else None
+
+    @property
+    def extractor_names(self) -> list[str]:
+        return list(self._extractors)
+
+    async def publish(self, cls: type[E], **fields: Any) -> tuple[E, Any]:
+        """Fire a built-in event (e.g. ``page.before``) with this call's step and scope."""
+        return await self._state.publish(
+            cls, step=self.step, frame=self._frame, scope_prev=self._prev, **fields
+        )
 
 
 class AdapterHandle:
@@ -190,3 +222,60 @@ class AdapterHandle:
     def isolated(self, **seed: Any) -> "AbstractAsyncContextManager[Any]":
         """A fresh session for the duration of a block (e.g. ``http.session``)."""
         return self._service.isolated(self.name, **seed)
+
+
+class ExtractorHandle:
+    """Returned by ``ctx.extractor(name)``: the extractor plus the shared field engine."""
+
+    def __init__(self, ctx: FunctionContext, extractor: "BaseExtractor") -> None:
+        from crowley.application.extractors.engine import ExtractionEngine
+
+        self._ctx = ctx
+        self.instance = extractor
+        self.engine = ExtractionEngine(extractor, on_fallback=self._fallback)
+
+    @property
+    def name(self) -> str:
+        return self.instance.name
+
+    async def _fallback(self, field: str, index: int, query: Any) -> None:
+        await self._ctx.publish(
+            SelectorFallback,
+            extractor=self.name,
+            field=field,
+            index=index,
+            query=query.source,
+        )
+
+    def parse(self, source: Value) -> Value:
+        return self.engine.handle(self.engine.root(source))
+
+    def select(
+        self,
+        source: Value,
+        selector: str,
+        *,
+        language: str | None = None,
+        attr: str | None = None,
+    ) -> Value:
+        from crowley.application.extractors.engine import make_query
+
+        return self.engine.select(source, make_query(selector, language), attr, every=False)
+
+    def select_all(
+        self,
+        source: Value,
+        selector: str,
+        *,
+        language: str | None = None,
+        attr: str | None = None,
+    ) -> Value:
+        from crowley.application.extractors.engine import make_query
+
+        return self.engine.select(source, make_query(selector, language), attr, every=True)
+
+    def read(self, node: Value, attr: str | None = None) -> Value:
+        return self.engine.read(self.engine.root(node), attr)
+
+    async def extract(self, source: Value, fields: Value, *, root: Value = None) -> Value:
+        return await self.engine.extract(source, fields, root, path=self._ctx.step.path)

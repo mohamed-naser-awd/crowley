@@ -645,6 +645,7 @@ Rules:
 - The signature is inspected **once**, at registration.
 - A parameter without a default that is not `required` in the input schema (and is not `prev`) is a registration error (`E903`). This catches handlers that could be called without an argument they depend on.
 - Optional arguments that are absent from `with:` and have no schema `default` are **not** passed. The handler's own Python default applies.
+- A top-level `with:` argument whose value is `null` counts as omitted, unless the argument is `required`. This lets templates pass optional values through (`cursor: ${{ page.cursor }}`) without special-casing `null`.
 - A handler must take the context as its first positional parameter, and other parameters must be keyword-compatible. A block function's handler must be `async` (`E903`).
 - Sync handlers run in a worker thread. Exceptions other than `CrowleyError` become `E502`, with the original exception as `cause`.
 - A function that is registered by spec only (no handler) still validates, but calling it fails with `E903`.
@@ -1069,6 +1070,9 @@ class BaseExtractor(ABC):
 - **Three methods only.** An extractor implements `parse`, `select` and `read`. Everything else is shared: the field engine (§13.9), the generated functions, fallback handling, validation and events.
 - **`Node`** is an opaque handle (`handle<html.node>`, `handle<json.node>`, ...) (§9).
 - **Purity:** extractors MUST be pure and do no I/O. Network access belongs in adapters.
+- **Nodes** are whatever the extractor returns from `parse`/`select`. The engine wraps them as `handle<<name>.node>` when they reach templates. `select` returns a list; a selection that yields strings, numbers or booleans (e.g. an XPath ending in `/@content` or `text()`) returns those values as nodes, and `read` on them returns them as text.
+- An optional `load(value, base_url, media_type)` hook turns non-text sources into nodes. The default parses strings and bytes, and the `json` extractor also accepts already-parsed JSON values (such as a response `body`).
+- Exceptions raised by `parse`, `select` or `read` become `E502` (`<name>.parse failed: ...`).
 - **Registration** mirrors adapters:
   - `Crowley(extractors=[...])`,
   - `cw.register_extractor(x)` or `cw.register_extractor(x, replace="html")` (compatible `query_languages` and `attributes` required, else `E906`),
@@ -1136,6 +1140,13 @@ fields:
 1. an explicit `using:` argument,
 2. the source's `media_type` matched against registered extractors' `media_types` (exact, then `+suffix` such as `+json`/`+xml`, then wildcard),
 3. otherwise `E403` with a hint listing the candidate extractors.
+
+A node handle (`handle<html.node>`) always routes to the extractor that made it.
+
+**Built-in specifics:**
+- `html` resolves `href`/`src` links against the response `url`, and normalizes whitespace in `text`.
+- `xml` never resolves entities, never loads DTDs and never uses the network (no XXE). Namespace prefixes declared on the node are available to XPath.
+- `text` treats each regex match as a node. Selecting inside a match searches that match, and every match has a 1-second timeout.
 
 ### 13.11 Built-in extractors
 
