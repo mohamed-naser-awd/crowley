@@ -11,6 +11,7 @@ from crowley.application.registry import RegisteredFunction
 from crowley.application.runtime import Executor, Frame, FunctionInvoker, RunState
 from crowley.domain.events import RunInfo
 from crowley.domain.expressions import EvalEnv
+from crowley.domain.functions import FunctionSpec
 from crowley.domain.template import Limits, Template
 from crowley.domain.values import Value
 
@@ -25,7 +26,7 @@ permissions:
 """
 
 
-def template(body: str, functions: Sequence[RegisteredFunction] = ()) -> Template:
+def template(body: str, functions: Sequence[RegisteredFunction | FunctionSpec] = ()) -> Template:
     """Load ``HEADER + body`` (dedented) through the full validation pipeline."""
     text = HEADER + textwrap.dedent(body)
     return Crowley(functions=functions).load_text(text, name="runtime.yml")
@@ -36,7 +37,7 @@ def operation(
     *,
     output: str = "schema: {}",
     extra: str = "",
-    functions: Sequence[RegisteredFunction] = (),
+    functions: Sequence[RegisteredFunction | FunctionSpec] = (),
 ) -> Template:
     """A template with one operation ``op`` made of ``steps`` (YAML list, dedented)."""
     indented_steps = textwrap.indent(textwrap.dedent(steps).strip(), "      ")
@@ -65,7 +66,7 @@ async def execute(
     inputs: dict[str, Value] | None = None,
     notifiers: NotifierSet | None = None,
     limits: Limits | None = None,
-    functions: Sequence[RegisteredFunction] = (),
+    functions: Sequence[RegisteredFunction | FunctionSpec] = (),
     **state_options: Any,
 ) -> Run:
     op = tpl.operation("op")

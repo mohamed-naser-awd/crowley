@@ -986,7 +986,7 @@ Objects are deep-merged. Scalars are replaced. Each adapter documents any specia
 
 `HttpAdapter` uses httpx. Its `schemes` are `http` and `https`, and its `target_kind` is `network`.
 
-**Config** (integrator side): `HttpAdapter(user_agent=..., proxy=..., timeout=..., http2=True, allow_private_networks=False, max_connections=100)`.
+**Config** (integrator side): `HttpAdapter(user_agent=..., proxy=..., timeout=..., http2=True, allow_private_networks=False, max_connections=100, transport=None)`. `transport` replaces the network with any `httpx.AsyncBaseTransport` (e.g. `httpx.MockTransport` in tests). When it is set, `proxy` is ignored.
 
 **Functions:**
 
@@ -1035,6 +1035,17 @@ request: { method, url, headers }        # as actually sent (secrets redacted in
 **Defaults:** `defaults.http` accepts `headers`, `query`, `cookies`, `timeout`, `follow_redirects`, `max_redirects`, `verify_tls`, `retry`, `expect_status` and `response_type`. Headers are merged case-insensitively. The default `User-Agent` is `crowley/<version> (+https://github.com/mohamed-naser-awd/crowley)` unless it is overridden.
 
 **Sessions:** each process has one implicit http session (cookie jar and connection pool). `http.session` nests an isolated one. `Retry-After` is honoured when `respect_retry_after` is set.
+
+**Details:**
+- `ok` is `status < 400`.
+- `body` follows `response_type`:
+  - `auto` parses JSON for `application/json` and `*+json` (falling back to text if the JSON is invalid), decodes text for `text/*`, XML and JavaScript types and for responses with no content type, and keeps other media types as bytes,
+  - `json` fails with `E602` on invalid JSON,
+  - an empty JSON body is `null`.
+- Bytes can flow between steps, but can't appear in an operation's output (`E405`).
+- Redirects are followed by the adapter itself, one hop at a time. Each hop is permission-checked **before** it is requested. Exceeding `max_redirects` causes `E602`.
+- Timeouts cause `E603`, and other transport failures cause `E602`. The response is read as a stream and stops with `E606` as soon as it exceeds `max_response_bytes`.
+- `E601` carries the response object as the error's `value`. `retry.on_status` and `Retry-After` use it, capped at `max_delay`.
 
 ### 13.8 Extractor contract
 

@@ -73,7 +73,9 @@ def test_builtin_spec_shapes() -> None:
     assert by_page.arg_bindings["stop_when"] == ("result", "page")
     assert by_name["transform.map"].lazy_args == {"fields"}
     assert by_name["transform.map"].from_prev_args == {"items"}
-    http = {s.name: s for s in HttpAdapter().functions()}
+    http = {
+        s.spec.name: s.spec for s in HttpAdapter().functions() if not isinstance(s, FunctionSpec)
+    }
     assert http["http.get"].target_args == {"url"}
     assert "method" not in http["http.get"].properties
     assert http["http.session"].kind is FunctionKind.BLOCK

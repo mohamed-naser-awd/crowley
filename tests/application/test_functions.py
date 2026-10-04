@@ -571,6 +571,7 @@ async def test_context_rejects_undeclared_events_and_has_no_adapters_yet() -> No
 
 
 async def test_unknown_or_unimplemented_functions_are_e903() -> None:
-    tpl = operation('- use: http.get\n  with: { url: "https://api.example.com" }')
+    declared = spec("acme.declared")
+    tpl = operation("- use: acme.declared", extra=REQUIRES, functions=[declared])
     with pytest.raises(ConfigurationError, match="no implementation"):
-        await execute(tpl)
+        await execute(tpl, functions=[declared])
