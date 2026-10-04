@@ -1,0 +1,581 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mohamed-naser-awd/crowley/blob/main/schema/crowley-1.schema.json",
+  "title": "Crowley template (spec version 1)",
+  "description": "A Crowley scraping template: one site or API, split into named operations.",
+  "type": "object",
+  "required": [
+    "crowley",
+    "id",
+    "version",
+    "name",
+    "description",
+    "permissions",
+    "operations"
+  ],
+  "properties": {
+    "crowley": {
+      "type": "integer",
+      "description": "Spec version. Must be 1."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$",
+      "description": "owner/name"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "description": "Semantic version, e.g. 1.2.0"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "authors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "license": {
+      "type": "string"
+    },
+    "homepage": {
+      "type": "string",
+      "format": "uri"
+    },
+    "requires": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "required": [
+        "hosts"
+      ],
+      "properties": {
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "defaults": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z_][a-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "object"
+      }
+    },
+    "limits": {
+      "$ref": "#/$defs/limits"
+    },
+    "schemas": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+      },
+      "additionalProperties": {
+        "type": [
+          "object",
+          "boolean"
+        ]
+      }
+    },
+    "functions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z_][a-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/function"
+      }
+    },
+    "operations": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z_][a-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/operation"
+      }
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "duration": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^\\s*\\d+(\\.\\d+)?\\s*(ms|s|m|h)\\s*$"
+        }
+      ]
+    },
+    "bytesize": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "(?i)^\\s*\\d+(\\.\\d+)?\\s*(b|kb|mb|gb)\\s*$"
+        }
+      ]
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "max_requests": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_duration": {
+          "$ref": "#/$defs/duration"
+        },
+        "max_items": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_depth": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_loop_iterations": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_concurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_response_bytes": {
+          "$ref": "#/$defs/bytesize"
+        },
+        "max_retries_per_step": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rate": {
+          "type": "object",
+          "properties": {
+            "per_host": {
+              "type": "string",
+              "pattern": "^\\s*\\d+(\\.\\d+)?\\s*/\\s*(s|m|h)\\s*$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "operation": {
+      "type": "object",
+      "required": [
+        "description",
+        "steps",
+        "output"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "inputs": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z_][a-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": [
+              "object",
+              "boolean"
+            ]
+          }
+        },
+        "limits": {
+          "$ref": "#/$defs/limits"
+        },
+        "steps": {
+          "$ref": "#/$defs/block"
+        },
+        "output": {
+          "$ref": "#/$defs/output"
+        },
+        "tests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/test"
+          }
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "additionalProperties": false
+    },
+    "function": {
+      "type": "object",
+      "required": [
+        "description",
+        "output",
+        "steps"
+      ],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input": {
+          "type": "object"
+        },
+        "prev": {
+          "type": [
+            "object",
+            "boolean"
+          ]
+        },
+        "output": {
+          "type": [
+            "object",
+            "boolean"
+          ]
+        },
+        "steps": {
+          "$ref": "#/$defs/block"
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "additionalProperties": false
+    },
+    "block": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    },
+    "step": {
+      "type": "object",
+      "description": "A step has exactly one kind key: use, if, for_each, while, set, emit, return, break, continue, fail, assert, log.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_]*$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "when": {
+          "type": [
+            "string",
+            "boolean"
+          ]
+        },
+        "on_error": {
+          "$ref": "#/$defs/on_error"
+        },
+        "timeout": {
+          "$ref": "#/$defs/duration"
+        },
+        "use": {
+          "type": "string",
+          "minLength": 1
+        },
+        "if": {
+          "type": [
+            "string",
+            "boolean"
+          ]
+        },
+        "for_each": {
+          "type": [
+            "string",
+            "array"
+          ]
+        },
+        "while": {
+          "type": [
+            "string",
+            "boolean"
+          ]
+        },
+        "set": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z_][a-z0-9_]*$"
+          }
+        },
+        "emit": {},
+        "return": {},
+        "break": {
+          "const": true
+        },
+        "continue": {
+          "const": true
+        },
+        "fail": {
+          "type": "string"
+        },
+        "assert": {
+          "type": [
+            "string",
+            "boolean"
+          ]
+        },
+        "log": {
+          "type": "string"
+        },
+        "with": {
+          "type": "object"
+        },
+        "do": {
+          "$ref": "#/$defs/block"
+        },
+        "secrets": {
+          "type": "object"
+        },
+        "then": {
+          "$ref": "#/$defs/block"
+        },
+        "else": {
+          "$ref": "#/$defs/block"
+        },
+        "as": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_]*$"
+        },
+        "index_as": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_]*$"
+        },
+        "concurrency": {
+          "type": [
+            "integer",
+            "string"
+          ],
+          "minimum": 1
+        },
+        "max_iterations": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "debug",
+            "info",
+            "warning",
+            "error"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "on_error": {
+      "anyOf": [
+        {
+          "enum": [
+            "fail",
+            "skip"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "default": {},
+            "retry": {
+              "type": "object",
+              "required": [
+                "times"
+              ],
+              "properties": {
+                "times": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "backoff": {
+                  "enum": [
+                    "fixed",
+                    "exponential"
+                  ]
+                },
+                "delay": {
+                  "$ref": "#/$defs/duration"
+                },
+                "max_delay": {
+                  "$ref": "#/$defs/duration"
+                }
+              },
+              "additionalProperties": false
+            },
+            "then": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "fail",
+                    "skip"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "default"
+                  ],
+                  "properties": {
+                    "default": {}
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "catch": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^E\\d{3}$"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "output": {
+      "type": "object",
+      "required": [
+        "schema"
+      ],
+      "properties": {
+        "value": {},
+        "schema": {
+          "type": [
+            "object",
+            "boolean"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "test": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fixtures": {
+          "type": "string"
+        },
+        "match": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expect": {
+          "type": "object",
+          "properties": {
+            "min_items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "snapshot": {
+              "type": "string"
+            },
+            "assert": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "error": {
+              "type": "string",
+              "pattern": "^[EW]\\d{3}$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
