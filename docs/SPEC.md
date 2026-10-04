@@ -266,7 +266,9 @@ permissions:
 - Every exchange MUST target a permitted host. Otherwise it fails with `E604`.
 - This is checked **after** notifiers run (`exchange.before`) and again at **every hop** the adapter reports, such as HTTP redirects.
 - **Static check:** a literal URL (or the literal origin of an interpolated URL) whose host is not permitted causes `E318`.
-- IP literals MUST be listed explicitly. `*` alone is not allowed.
+- IP literals MUST be listed explicitly; IPv6 is written in brackets when a port is given (`[::1]:8080`). `*` alone is not allowed, and a wildcard needs at least two labels (`*.example.com`, not `*.com`).
+- A pattern **without a port** matches only the scheme's default port. Any other port must be listed explicitly (`example.com:8443`).
+- `*.example.com` matches subdomains at any depth (`a.example.com`, `a.b.example.com`), but not `example.com` itself.
 - **SSRF guard:** after DNS resolution, loopback, private, link-local and multicast addresses are blocked (`E604`) unless the integrator configures the adapter with `allow_private_networks=True` (e.g. `HttpAdapter(allow_private_networks=True)`).
 - A child template (§11.5) can only reach hosts that are allowed by **both** its own `permissions` and the parent's.
 

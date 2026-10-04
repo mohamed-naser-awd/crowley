@@ -71,6 +71,15 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC", "PT", "N", "C4",
 [tool.ruff.lint.isort]
 known-first-party = ["crowley"]
 
+[tool.ruff.lint.flake8-bugbear]
+# Frozen, immutable value objects that are safe as dataclass defaults (RUF009).
+extend-immutable-calls = [
+    "crowley.domain.common.TemplatePath",
+    "crowley.domain.common.Duration",
+    "crowley.domain.template.limits.Limits",
+    "crowley.domain.template.permissions.Permissions",
+]
+
 # ── mypy ──────────────────────────────────────────────────────────────────────
 [tool.mypy]
 strict = true
