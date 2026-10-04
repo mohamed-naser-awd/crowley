@@ -645,6 +645,10 @@ Rules:
 - The signature is inspected **once**, at registration.
 - A parameter without a default that is not `required` in the input schema (and is not `prev`) is a registration error (`E903`). This catches handlers that could be called without an argument they depend on.
 - Optional arguments that are absent from `with:` and have no schema `default` are **not** passed. The handler's own Python default applies.
+- A handler must take the context as its first positional parameter, and other parameters must be keyword-compatible. A block function's handler must be `async` (`E903`).
+- Sync handlers run in a worker thread. Exceptions other than `CrowleyError` become `E502`, with the original exception as `cause`.
+- A function that is registered by spec only (no handler) still validates, but calling it fails with `E903`.
+- Lazy arguments are checked for presence (`required`) but not against their property schema. The function checks them when it evaluates them.
 
 ```python
 from crowley import function, FunctionContext
