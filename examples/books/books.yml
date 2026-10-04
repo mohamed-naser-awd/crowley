@@ -1,0 +1,56 @@
+crowley: 1
+id: examples/books
+version: 1.0.0
+name: Books to Scrape
+description: Book listings from books.toscrape.com, a public sandbox for scrapers.
+tags: [example, html]
+
+permissions:
+  hosts: [books.toscrape.com]
+
+defaults:
+  http:
+    timeout: 20s
+    retry: { times: 2, on_status: [429, 503] }
+
+operations:
+  list_books:
+    description: Books from the first pages of the catalogue.
+    inputs:
+      max_pages: { type: integer, default: 2, minimum: 1, maximum: 50 }
+    steps:
+      - use: paginate.by_page
+        with:
+          max_pages: ${{ inputs.max_pages }}
+          flatten: true
+        do:
+          - use: http.get
+            with:
+              url: ${{ 'https://books.toscrape.com/catalogue/page-' + str(page.number) + '.html' }}
+          - use: html.extract
+            with:
+              root: article.product_pod
+              fields:
+                title:  { selector: "h3 a", attr: title }
+                price:  { selector: .price_color }
+                rating: { selector: p.star-rating, attr: class }
+                url:    { selector: "h3 a", attr: href }
+      - for_each: ${{ prev }}
+        as: book
+        do:
+          - emit:
+              title:  ${{ book.title }}
+              price:  ${{ parse_number(replace(book.price, '£', '')) }}
+              rating: ${{ replace(book.rating, 'star-rating ', '') }}
+              url:    ${{ book.url }}
+    output:
+      schema:
+        type: array
+        items:
+          type: object
+          required: [title, price, url]
+          properties:
+            title:  { type: string, minLength: 1 }
+            price:  { type: number, minimum: 0 }
+            rating: { enum: [One, Two, Three, Four, Five] }
+            url:    { type: string, format: uri }

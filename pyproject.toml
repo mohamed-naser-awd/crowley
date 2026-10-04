@@ -1,6 +1,6 @@
 [project]
 name = "crowley"
-version = "0.0.1"
+version = "0.1.0"
 description = "Declarative, template-driven web scraping SDK: YAML operations, function registry, strict validation and runtime notifiers."
 readme = "README.md"
 license = "MIT"
@@ -9,7 +9,7 @@ requires-python = ">=3.11"
 authors = [{ name = "The Crowley authors" }]
 keywords = ["scraping", "crawler", "yaml", "templates", "sdk"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Framework :: AsyncIO",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
@@ -33,6 +33,12 @@ dependencies = [
     "ruamel.yaml>=0.18",
     "tzdata>=2024.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/mohamed-naser-awd/crowley"
+Documentation = "https://github.com/mohamed-naser-awd/crowley/blob/main/docs/SPEC.md"
+Changelog = "https://github.com/mohamed-naser-awd/crowley/blob/main/CHANGELOG.md"
+Issues = "https://github.com/mohamed-naser-awd/crowley/issues"
 
 [project.scripts]
 crowley = "crowley.interface.cli:main"

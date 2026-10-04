@@ -239,8 +239,9 @@ Developers keep full control at runtime through **notifiers**. Every step, funct
 | **M1 Language** | Domain model (template, **operations**, template functions, shared schemas, steps AST, values, errors, events). Templates are multi-operation from the first commit; there is no single-operation format to migrate from. Also: expression lexer, parser and evaluator, YAML loader with positions, meta-schema, compiler, static validator. `crowley validate` and `crowley schema`. |
 | **M2 Runtime** | `Process` (one operation run each, safe to run several concurrently) with global, registry and process notifier scopes. Event bus and `StepPipeline` built **first**, then the executor on top of them, so every step kind has before/after notifiers from its first commit. Then: `prev` piping, `**kwargs` handler binding, template functions (`local.*`), scopes, control flow, `on_error`, limits, runtime validation, `emit` and streaming. Exit criterion: the notifier conformance test passes. |
 | **M3 Adapters, extractors & stdlib** | Adapter framework (`BaseAdapter`, registry, exchange pipeline with permissions/SSRF, limits, rate limiting, retries) and the built-in `http` adapter. Extractor framework (`BaseExtractor`, field engine, `extract.auto`) and the built-in `html`, `xml`, `json` and `text` extractors. Contract test suites. `paginate.*`, `transform.*`, `control.*`. `crowley run`. |
-| **M4 Composition** | `template:<ref>#<op>` calls, `for_each` concurrency, fallback selectors, plugins and `requires`. |
-| **M5 Testing & release** | Cassette record and replay (+ HAR import/export), `tests:` block, `crowley test`/`record`/`explain`, traces, docs, example corpus. Release 0.1.0. |
+| **Release 0.1.0** | Shipped after M3: M0–M3 plus fallback selectors, plugins and `requires` (delivered earlier than planned). |
+| **M4 Composition (0.2)** | `template:<ref>#<op>` calls, `for_each` concurrency, a directory template source. |
+| **M5 Testing (0.3)** | Cassette record and replay (+ HAR import/export), `tests:` block, `crowley test`/`record`/`explain`, traces, docs, example corpus. |
 
 ## 12. Risks and mitigations
 
