@@ -3,7 +3,7 @@
 The public API is re-exported from here (see docs/SPEC.md §20).
 """
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 from crowley.application.adapters import BaseAdapter
 from crowley.application.events import Notifier, NotifierHandle, NotifierRegistry

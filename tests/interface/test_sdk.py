@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from crowley import Crowley
-from crowley.domain.errors import ConfigurationError, TemplateSemanticError
+from crowley.domain.errors import TemplateSemanticError
 from crowley.infrastructure.sources import InMemorySource
 
 ROOT = Path(__file__).parents[2]
@@ -32,11 +32,13 @@ def test_validate_text() -> None:
     assert report.errors[0].code == "E202"
 
 
-async def test_sync_api_inside_event_loop_is_e902() -> None:
+async def test_sync_loading_works_inside_an_event_loop() -> None:
     crowley = Crowley()
-    with pytest.raises(ConfigurationError) as info:
-        crowley.validate(str(EXAMPLE))
-    assert info.value.code == "E902"
+    assert crowley.validate(str(EXAMPLE)).ok
+    assert crowley.load(str(EXAMPLE)).id == "examples/company-directory"
+    assert crowley.init(
+        f"{EXAMPLE}#get_page_info", inputs={"company": "a"}, secrets={"API_TOKEN": "t"}
+    )
     assert (await crowley.validate_async(str(EXAMPLE))).ok
     assert (await crowley.load_async(str(EXAMPLE))).id == "examples/company-directory"
 

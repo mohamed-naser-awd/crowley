@@ -4,8 +4,10 @@ It loads and validates templates, registers plugins, holds the global notifiers 
 processes (``init``) that run one operation each (docs/SPEC.md §17.3, §20).
 """
 
-from collections.abc import AsyncIterator, Iterable, Mapping
-from typing import Any
+import asyncio
+import concurrent.futures
+from collections.abc import AsyncIterator, Coroutine, Iterable, Mapping
+from typing import Any, TypeVar
 
 from crowley.adapters.http import HttpAdapter
 from crowley.application.adapters import BaseAdapter
@@ -47,6 +49,8 @@ from crowley.infrastructure.sources import FileSource
 from crowley.infrastructure.system import SystemClock, SystemRandom
 from crowley.infrastructure.yaml import RuamelTemplateParser
 from crowley.stdlib import StdlibPlugin
+
+T = TypeVar("T")
 
 
 class BuiltinPlugin:
@@ -149,11 +153,14 @@ class Crowley(NotifierScope):
 
     def validate(self, ref: str) -> ValidationReport:
         """Stages 1-3: every diagnostic for ``ref`` (a file path or a source reference)."""
-        return run_sync(self.validate_async(ref))
+        return _blocking(self.validate_async(ref))
 
     def load(self, ref: str) -> Template:
-        """A validated template. Raises the first error (others attached as ``related``)."""
-        return run_sync(self.load_async(ref))
+        """A validated template. Raises the first error (others attached as ``related``).
+
+        Works inside a running event loop too (loading is a short, self-contained read).
+        """
+        return _blocking(self.load_async(ref))
 
     def load_text(self, text: str, *, name: str = "<memory>") -> Template:
         """A validated template from text that is not stored anywhere. Raises the first error."""
@@ -182,8 +189,7 @@ class Crowley(NotifierScope):
         """Create a process for one operation. Inputs and secrets are validated now.
 
         ``template`` is a loaded template or a reference (``"file.yml"`` or
-        ``"file.yml#operation"``). References are loaded synchronously, so inside an event
-        loop load them first with ``await crowley.load_async(...)``.
+        ``"file.yml#operation"``).
         """
         if isinstance(template, str):
             ref, operation = _split_ref(template, operation)
@@ -289,6 +295,16 @@ class Crowley(NotifierScope):
         )
         async for item in process.stream():
             yield item
+
+
+def _blocking(coroutine: Coroutine[Any, Any, T]) -> T:
+    """Run a short coroutine to completion from sync code, even inside a running loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coroutine)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coroutine).result()
 
 
 def _split_ref(ref: str, operation: str | None) -> tuple[str, str | None]:
