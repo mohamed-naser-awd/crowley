@@ -1,0 +1,15 @@
+# expect: E324 operations.op.steps[0].use
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+operations:
+  op:
+    description: d
+    steps:
+      - use: 'template:acme/fixture#op'
+    output:
+      schema: {}

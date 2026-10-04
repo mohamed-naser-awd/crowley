@@ -1,0 +1,15 @@
+# expect: E205 id
+crowley: 1
+id: Not An Id
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+operations:
+  op:
+    description: d
+    steps:
+      - log: x
+    output:
+      schema: {}

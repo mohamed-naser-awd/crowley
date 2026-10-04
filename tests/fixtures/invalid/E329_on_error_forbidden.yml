@@ -1,0 +1,16 @@
+# expect: E329 operations.op.steps[0].on_error
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+operations:
+  op:
+    description: d
+    steps:
+      - set: {n: 1}
+        on_error: skip
+    output:
+      schema: {}

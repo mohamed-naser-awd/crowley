@@ -1,0 +1,20 @@
+# expect: W003 functions.f
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+functions:
+  f:
+    description: d
+    output: {}
+    steps: []
+operations:
+  op:
+    description: d
+    steps:
+      - log: x
+    output:
+      schema: {}

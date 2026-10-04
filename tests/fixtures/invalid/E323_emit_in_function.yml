@@ -1,0 +1,21 @@
+# expect: E323 functions.f.steps[0]
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+functions:
+  f:
+    description: d
+    output: {}
+    steps:
+      - emit: 1
+operations:
+  op:
+    description: d
+    steps:
+      - use: local.f
+    output:
+      schema: {}

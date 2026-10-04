@@ -1,0 +1,17 @@
+# expect: E203 defaults.htttp
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+defaults:
+  htttp: {timeout: 5s}
+operations:
+  op:
+    description: d
+    steps:
+      - log: x
+    output:
+      schema: {}

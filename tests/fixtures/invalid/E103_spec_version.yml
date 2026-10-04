@@ -1,0 +1,8 @@
+# expect: E103 crowley
+crowley: 2
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]

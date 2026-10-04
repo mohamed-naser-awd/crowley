@@ -1,0 +1,18 @@
+# expect: W001 operations.op.steps[0].do[1]
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+operations:
+  op:
+    description: d
+    steps:
+      - for_each: [1]
+        do:
+          - return: 1
+          - log: never
+    output:
+      schema: {}

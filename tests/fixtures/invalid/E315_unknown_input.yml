@@ -1,0 +1,15 @@
+# expect: E315 operations.op.steps[0].log
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+operations:
+  op:
+    description: d
+    steps:
+      - log: ${{ inputs.nope }}
+    output:
+      schema: {}

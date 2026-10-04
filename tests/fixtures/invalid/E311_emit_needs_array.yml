@@ -1,0 +1,15 @@
+# expect: E311 operations.op.output.schema
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+operations:
+  op:
+    description: d
+    steps:
+      - emit: 1
+    output:
+      schema: {type: object}
