@@ -1,0 +1,124 @@
+[project]
+name = "crowley"
+version = "0.0.1"
+description = "Declarative, template-driven web scraping SDK: YAML operations, function registry, strict validation and runtime notifiers."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "The Crowley authors" }]
+keywords = ["scraping", "crawler", "yaml", "templates", "sdk"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP",
+    "Typing :: Typed",
+]
+dependencies = [
+    "click>=8.1",
+    "cssselect>=1.2",
+    "httpx[http2]>=0.27",
+    "jsonschema[format]>=4.23",
+    "lxml>=5.3",
+    "python-jsonpath>=1.2",
+    "regex>=2024.9",
+    "ruamel.yaml>=0.18",
+]
+
+[project.scripts]
+crowley = "crowley.interface.cli:main"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.100",
+    "import-linter>=2.1",
+    "lxml-stubs>=0.5",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "respx>=0.21",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/crowley"]
+
+# ── ruff ──────────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["docs"]   # design docs hold illustrative snippets, not runnable code
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC", "PT", "N", "C4", "PIE", "RET", "TID"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["crowley"]
+
+# ── mypy ──────────────────────────────────────────────────────────────────────
+[tool.mypy]
+strict = true
+mypy_path = "src"
+packages = ["crowley"]
+python_version = "3.11"
+
+# ── pytest / coverage ─────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["crowley"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+# ── import-linter: onion architecture (docs/ARCHITECTURE.md §1.1) ─────────────
+[tool.importlinter]
+root_package = "crowley"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Onion layers"
+type = "layers"
+layers = [
+    "crowley.interface",
+    "crowley.adapters | crowley.extractors | crowley.stdlib | crowley.infrastructure",
+    "crowley.application",
+    "crowley.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Core has no third-party deps"
+type = "forbidden"
+source_modules = ["crowley.domain", "crowley.application", "crowley.stdlib"]
+forbidden_modules = ["httpx", "ruamel", "jsonschema", "lxml", "cssselect", "regex", "jsonpath", "click"]
+
+[[tool.importlinter.contracts]]
+name = "Built-in extractors are independent"
+type = "independence"
+modules = [
+    "crowley.extractors.html",
+    "crowley.extractors.xml",
+    "crowley.extractors.json",
+    "crowley.extractors.text",
+]
+# "Built-in adapters are independent" is added when a second built-in adapter lands.

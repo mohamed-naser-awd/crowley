@@ -11,7 +11,9 @@
 
 ## 1. Overview
 
-Crowley is a Python SDK that runs **declarative scraping templates** written in YAML. A template covers one site or API and is split into named **operations**, for example `get_page_info` and `get_page_people`. Each operation describes *what* to fetch and *how* to turn responses into structured data, and is run on its own. Operations share logic through **template functions**: named groups of steps declared once in the template. It does this by combining **functions** from a registry with a few control-flow constructs: conditions, loops and variables.
+Crowley is a Python SDK that runs **declarative scraping templates** written in YAML. A template covers one site or API and is split into named **operations**, for example `get_page_info` and `get_page_people`. Each operation describes *what* to fetch and *how* to turn responses into structured data, and is run on its own. Operations share logic through **template functions**: named groups of steps declared once in the template. Each operation combines **functions** from a registry with a few control-flow constructs: conditions, loops and variables.
+
+Crowley's core knows neither HTTP nor HTML. All I/O goes through pluggable **adapters** (HTTP is the built-in one), and all content parsing goes through pluggable **extractors** (HTML, XML, JSON and text are built in). Developers can write and register their own adapters and extractors with the same API the built-ins use.
 
 Crowley is **function-based**. The engine has no built-in idea of "pagination", "login" or "API". It only knows how to:
 
@@ -24,7 +26,7 @@ Features like pagination exist only as functions (`paginate.by_page`, `paginate.
 
 Every template has an **output schema**, and Crowley **force-validates** at every boundary. Invalid data stops the run with a precise, typed error. Data is never silently corrupted.
 
-Developers keep full control at runtime through **notifiers**. Every step, function call, condition, loop iteration, HTTP request and response emits an event, and that event can be observed or modified.
+Developers keep full control at runtime through **notifiers**. Every step, function call, condition, loop iteration and adapter exchange (request and response) emits an event, and that event can be observed or modified.
 
 ## 2. Problem
 
@@ -43,12 +45,12 @@ Developers keep full control at runtime through **notifiers**. Every step, funct
 | G4 | **Extensible**: custom functions and plugins use the same contract as the built-ins. |
 | G5 | **Total runtime control**: notifiers on every step and every phase, able to change data, skip, replace, retry or abort. |
 | G6 | **Hub-ready**: stable template ids and versions, a `requires` declaration, declared host permissions, and template tests. The hub can be added later without changing the template format. |
-| G7 | **Clean architecture**: onion layering, so transports (HTTP now, browser later), parsers and sources are swappable adapters. |
+| G7 | **Clean architecture**: onion layering. I/O (**adapters**: HTTP now; browser, WebSocket or custom later) and parsing (**extractors**: HTML, XML, JSON, text now; PDF, CSV or custom later) are plugins with public base classes. Users can add or replace them without touching the core. |
 
 ## 4. Non-goals (v1)
 
 - The template hub (server, publishing, search, accounts).
-- Browser rendering or JavaScript execution. The design leaves room for a `browser.*` plugin namespace and a `BrowserPort` later.
+- Browser rendering or JavaScript execution. A browser will be just another adapter (`browser`), with no core change.
 - A GUI template builder, or AI-generated templates.
 - Distributed or multi-machine crawling and job scheduling.
 - Bypassing CAPTCHAs or anti-bot measures.
@@ -59,7 +61,7 @@ Developers keep full control at runtime through **notifiers**. Every step, funct
 |---|---|---|
 | **Template author** | Writes YAML templates for a site or API. May not be a Python expert. | Clear syntax, good error messages with line and column, ready-made functions, offline tests. |
 | **Integrator** | Python developer embedding Crowley in an app or pipeline. | Simple API, typed results, notifiers to inject proxies, auth and logging, predictable failures. |
-| **Plugin author** | Python developer adding domain-specific functions (e.g. `mycorp.decode_token`). | A small, documented function contract; namespaces; access to HTTP and HTML through ports. |
+| **Plugin author** | Python developer adding functions (e.g. `mycorp.decode_token`), **adapters** for new protocols (e.g. WebSocket, SOAP) or **extractors** for new formats (e.g. PDF, CSV). | Small, documented base classes (`BaseAdapter`, `BaseExtractor`) and function contract; namespaces; reusable contract test suites; no need to reimplement permissions, limits, notifiers, retries or record/replay. |
 
 ## 6. User stories
 
@@ -68,7 +70,9 @@ Developers keep full control at runtime through **notifiers**. Every step, funct
 2. As a template author, `crowley validate` finds a typo in a function name or a reference to a step that doesn't exist **before** any request is made.
 3. As a template author, I record real responses once (`crowley record`) and then run `crowley test` offline whenever I change selectors.
 4. As an integrator, I call `await crowley.run("t.yml", inputs={...})` and get a validated result, or a typed exception that tells me exactly which field or step failed.
-5. As an integrator, I attach a `request.before` notifier that adds a proxy and auth header to every request, without editing the template.
+5. As an integrator, I attach an `exchange.before` notifier that adds a proxy and auth header to every request, without editing the template.
+5. As a plugin author, I subclass `BaseAdapter` to add a WebSocket adapter, or `BaseExtractor` to add a PDF extractor, and register it. Templates can then use `ws.*` / `pdf.extract` with the same permissions, notifiers, validation and record/replay as the built-ins.
+5. As an integrator, I swap a built-in (`register_adapter(MyHttp(), replace="http")` or `register_extractor(MyHtml(), replace="html")`) without changing any template.
 5. As an integrator running several operations at once, I give each process its own notifiers (`process.add_notifier`) and share common bundles (`process.add_notifier_registry`), while global notifiers still apply to all of them.
 6. As an integrator, I attach a `step.after` notifier to a specific step id to fix data before it continues through the template.
 7. As an integrator, I stream items one at a time (`async for item in crowley.stream(...)`) for large crawls.
@@ -106,21 +110,42 @@ Developers keep full control at runtime through **notifiers**. Every step, funct
 - **FR-13a** Every handler is called as `handler(ctx, **kwargs)`, where `kwargs` holds the validated args plus `prev`.
   - A handler with `**kwargs` receives everything. Otherwise it receives only the parameters it names, so any argument, `prev` included, is optional for the handler.
   - The signature is checked against the schema when the function is registered.
-- **FR-13b** An input property can be marked to default from `prev` when it is omitted (e.g. `html.extract.html`, `transform.*.items`).
+- **FR-13b** An input property can be marked to default from `prev` when it is omitted (e.g. an extractor's `source`, `transform.*.items`).
 - **FR-14** Functions can be registered with a decorator, a `register()` call, or a plugin object. Entry-point discovery is opt-in.
 - **FR-15** Templates can define **template functions**: named groups of steps under `functions:`, each with an input schema and an output schema. Any operation calls them with `use: local.<name>`.
   - They are validated and observable like any other function.
   - They can call each other, but not recursively.
   - They can't read operation `inputs` or `emit`, so they behave the same from every operation.
 - **FR-16** Templates can call an operation of another template with `use: template:<ref>#<operation>`.
-- **FR-17** The v1 standard library includes `http.*`, `html.*`, `paginate.*`, `transform.*` and `control.*` (see SPEC §12).
+- **FR-17** Built-in functions (SPEC §12):
+  - stdlib: `paginate.*`, `transform.*`, `control.*`, `extract.auto`,
+  - from the built-in `http` adapter: `http.*`,
+  - generated for each built-in extractor: `html.*`, `xml.*`, `json.*`, `text.*`.
 
-### 7.5 HTTP
-- **FR-18** Requests support any method, URL, query, headers, cookies, a body (`json` | `form` | `raw` | `multipart`), timeout, redirects, proxy, TLS verification, auth, expected status codes, response type, and retries with backoff.
-- **FR-19** Template-level `defaults.http` merge into every request. Precedence: SDK config < template defaults < step args < notifiers.
-- **FR-20** Every run has an implicit cookie session. `http.session` creates an isolated nested session.
-- **FR-21** Requests are allowed only to hosts declared in `permissions.hosts`. Private and loopback networks are blocked unless the integrator enables them. Redirects are checked at every hop.
-- **FR-22** The HTTP transport is a port. httpx is the v1 adapter. Record and replay adapters support testing.
+### 7.5 Adapters (I/O) and extractors (parsing)
+- **FR-18** **Adapters.** All I/O goes through adapters (SPEC §13.1–§13.7). An adapter subclasses the public `BaseAdapter`:
+  - it declares `name`, `version`, `schemes`, `target_kind` and its config, defaults, request and response schemas,
+  - it implements `open`/`send`/`close`,
+  - it may contribute functions in its own namespace.
+
+  The domain and application layers contain no HTTP-specific code.
+- **FR-19** **One exchange pipeline for every adapter.** Defaults merge, `exchange.*` notifier events, the permission and SSRF guard, limits, rate limiting, retries, size caps, secret redaction and record/replay are all applied by the core. Adapter authors never implement them.
+- **FR-20** **Registering adapters:**
+  - `Crowley(adapters=[...])`,
+  - `cw.register_adapter(a)` or `register_adapter(a, replace="http")` (compatible contract required),
+  - per process with `cw.init(..., adapters={...})`,
+  - in plugins.
+
+  Templates declare non-built-in adapters in `requires` (`adapter:ws@^1`).
+- **FR-21** **Built-in `http` adapter** (httpx). Requests support any method, URL, query, headers, cookies, a body (`json` | `form` | `raw` | `bytes` | `multipart`), timeout, redirects, proxy, TLS verification, auth, expected status codes, response type and retries with backoff. `defaults.http` merges into every request. Each process has an implicit session, and `http.session` nests an isolated one.
+- **FR-22** **Extractors.** All content parsing goes through extractors (SPEC §13.8–§13.11). An extractor subclasses the public `BaseExtractor`:
+  - it declares `name`, `media_types`, `query_languages` and `attributes`,
+  - it implements only `parse`/`select`/`read`.
+
+  The shared field engine gives every extractor `<name>.extract/select/select_all/parse`, fallback queries, `required`/`default`, nested fields, static query validation and `selector.fallback` events. `extract.auto` routes by media type.
+- **FR-22a** **Registering extractors** mirrors adapters: `Crowley(extractors=[...])`, `register_extractor(e)` or `register_extractor(e, replace="html")`, per-process overrides, plugins, and `requires` (`extractor:pdf@^1`). Built-ins: `html` (css/xpath), `xml` (xpath/css), `json` (jsonpath), `text` (regex).
+- **FR-22b** A single `Plugin` can bundle functions, adapters, extractors and helpers.
+- **FR-22c** Reusable **contract test suites** for adapters and extractors are shipped for plugin authors.
 
 ### 7.6 Validation (force validate)
 - **FR-23** Validation happens in five stages: (1) parse, (2) meta-schema, (3) static semantic checks, (4) runtime validation of inputs, function args, function results and emitted items, (5) final output.
@@ -130,7 +155,7 @@ Developers keep full control at runtime through **notifiers**. Every step, funct
 ### 7.7 Notifiers
 - **FR-25a** **Notifiers exist from day one.** The event bus and the step pipeline are part of the first runnable version of the runtime (M2). No step kind may ship without its before/after events.
 - **FR-25b** Every step of every kind, at every nesting depth, fires `step.before` and then `step.after` (or `step.error`/`step.skipped`). In `step.before`, notifiers can change the step's incoming `prev` and evaluated args. In `step.after`, they can change its result, which is the next step's `prev`.
-- **FR-26** Events are emitted for the run, template, inputs, steps, functions, conditions, loops, pages, HTTP requests and responses, variables, emitted items, output and logs (SPEC §17).
+- **FR-26** Events are emitted for the run, template, inputs, steps, functions, conditions, loops, pages, adapter exchanges (`exchange.before/after/error/retry`, filterable by `adapter=`), selector fallbacks (filterable by `extractor=`), variables, emitted items, output and logs (SPEC §17).
 - **FR-27** Interceptors can change event data and return actions: `skip`, `replace`, `retry`, `abort`. Observers are read-only.
 - **FR-27a** **Notifier scopes.** Notifiers can be registered at three scopes:
   - **global**, on the `Crowley` instance; these always apply,
@@ -154,12 +179,12 @@ Developers keep full control at runtime through **notifiers**. Every step, funct
 - **FR-35** The SDK offers `run()` (collect everything), `stream()` (async iterator of emitted items) and `run_sync()`.
 
 ### 7.10 Limits and safety
-- **FR-36** Limits: `max_requests`, `max_duration`, `max_items`, `max_depth`, `max_loop_iterations`, `max_concurrency`, `max_response_bytes`, and a per-host rate limit. SDK-level limits cap template limits (the stricter value wins).
+- **FR-36** Limits: `max_requests` (exchanges across all adapters), `max_duration`, `max_items`, `max_depth`, `max_loop_iterations`, `max_concurrency`, `max_response_bytes`, and a per-host rate limit. SDK-level limits cap template limits (the stricter value wins).
 - **FR-37** Secrets come only from the integrator and are redacted in events, traces, logs and errors.
 
 ### 7.11 Testing and tooling
-- **FR-38** Each operation can include a `tests:` block with inputs, fixtures (HAR files), and expectations (snapshot, item counts, assertions, expected error code).
-- **FR-39** CLI commands: `run <template> <operation>`, `operations`, `validate`, `explain`, `test`, `record`, `functions list|show`, `schema`, `init`.
+- **FR-38** Each operation can include a `tests:` block with inputs, fixtures (adapter-agnostic **cassettes**; HAR files can be imported for http), and expectations (snapshot, item counts, assertions, expected error code).
+- **FR-39** CLI commands: `run <template> <operation>`, `operations`, `validate`, `explain`, `test`, `record`, `functions list|show`, `adapters list|show`, `extractors list|show`, `schema`, `init`.
 - **FR-40** Each run can write a JSON trace of all events (secrets redacted).
 - **FR-41** The meta-schema is published as a JSON Schema so editors can autocomplete and validate YAML.
 
@@ -184,13 +209,15 @@ Developers keep full control at runtime through **notifiers**. Every step, funct
 - Expression language with the core helper set
 - Runtime: all step kinds, scopes, concurrency, limits, permissions, `on_error`, `emit` and streaming
 - Notifier system (interceptors and observers) with the full event catalog
-- Stdlib: `http`, `html`, `paginate`, `transform`, `control`
+- Adapter framework (`BaseAdapter`, exchange pipeline) with the built-in `http` adapter
+- Extractor framework (`BaseExtractor`, field engine, media-type routing) with the built-in `html`, `xml`, `json` and `text` extractors
+- Stdlib: `paginate`, `transform`, `control`, `extract`
 - Template composition (`template:<ref>#<op>`), fallback selectors
-- Record and replay (HAR), the `tests:` block, trace output
+- Record and replay (cassettes for every adapter; HAR import/export for http), the `tests:` block, trace output
 - CLI and Python SDK facade
 
 ### Later
-- `browser.*` plugin (Playwright adapter for a `BrowserPort`)
+- `browser` adapter (Playwright), plus more adapters (WebSocket, GraphQL) and extractors (CSV, PDF)
 - Hub client (`HubSource` adapter for `TemplateSource`), signatures, lockfile
 - Persistent `state:` between runs (incremental crawls), checkpoint and resume
 - HTTP response cache for development, output sinks (CSV, SQL, webhook)
@@ -211,9 +238,9 @@ Developers keep full control at runtime through **notifiers**. Every step, funct
 | **M0 Skeleton** | Repository, packaging (uv/hatch), layer packages, import-linter contracts, CI (ruff, mypy, pytest). |
 | **M1 Language** | Domain model (template, **operations**, template functions, shared schemas, steps AST, values, errors, events). Templates are multi-operation from the first commit; there is no single-operation format to migrate from. Also: expression lexer, parser and evaluator, YAML loader with positions, meta-schema, compiler, static validator. `crowley validate` and `crowley schema`. |
 | **M2 Runtime** | `Process` (one operation run each, safe to run several concurrently) with global, registry and process notifier scopes. Event bus and `StepPipeline` built **first**, then the executor on top of them, so every step kind has before/after notifiers from its first commit. Then: `prev` piping, `**kwargs` handler binding, template functions (`local.*`), scopes, control flow, limits, runtime validation, `emit` and streaming. Exit criterion: the notifier conformance test passes. |
-| **M3 Stdlib & HTTP** | httpx transport, permissions and SSRF guard, rate limiting, `http.*`, `html.*` (lxml), `paginate.*`, `transform.*`, `control.*`. `crowley run`. |
+| **M3 Adapters, extractors & stdlib** | Adapter framework (`BaseAdapter`, registry, exchange pipeline with permissions/SSRF, limits, rate limiting, retries) and the built-in `http` adapter. Extractor framework (`BaseExtractor`, field engine, `extract.auto`) and the built-in `html`, `xml`, `json` and `text` extractors. Contract test suites. `paginate.*`, `transform.*`, `control.*`. `crowley run`. |
 | **M4 Composition** | `template:<ref>#<op>` calls, `on_error`, `for_each` concurrency, fallback selectors, plugins and `requires`. |
-| **M5 Testing & release** | HAR record and replay, `tests:` block, `crowley test`/`record`/`explain`, traces, docs, example corpus. Release 0.1.0. |
+| **M5 Testing & release** | Cassette record and replay (+ HAR import/export), `tests:` block, `crowley test`/`record`/`explain`, traces, docs, example corpus. Release 0.1.0. |
 
 ## 12. Risks and mitigations
 
@@ -231,7 +258,9 @@ Developers keep full control at runtime through **notifiers**. Every step, funct
 | Decision | Choice |
 |---|---|
 | Language | Python ≥ 3.11 |
-| Transport | HTTP only in v1, behind a `HttpTransport` port. Browser comes later as a plugin. |
+| I/O | Pluggable **adapters** (`BaseAdapter`). Only `http` is built in for v1. A browser comes later as just another adapter. |
+| Parsing | Pluggable **extractors** (`BaseExtractor`). `html`, `xml`, `json` and `text` are built in. |
+| Events | Exchange events are named `exchange.before/after/error/retry` (no `request.*` aliases) |
 | Architecture | Onion: domain → application → (stdlib, infrastructure) → interface |
 | Expression syntax | `${{ ... }}` with a custom sandboxed, Python-flavoured grammar |
 | Output model | `emit` (streamable list), **or** `output.value`, **or** the final `prev` (pipe mode) |
@@ -240,9 +269,9 @@ Developers keep full control at runtime through **notifiers**. Every step, funct
 | Function calling convention | `handler(ctx, **kwargs)`, bound to whatever the handler's signature accepts |
 | Notifiers | Core runtime feature from M2's first commit, not an add-on. Three scopes: global (always applied), `NotifierRegistry` bundles, per-`Process`. |
 | Schema dialect | JSON Schema 2020-12 |
-| HTML engine | lxml + cssselect (CSS and XPath) |
+| Built-in libraries | httpx (`http`), lxml + cssselect (`html`, `xml`), python-jsonpath (`json`), regex (`text`) |
 | YAML engine | ruamel.yaml (source positions, duplicate-key detection) |
-| Fixture format | HAR 1.2 |
+| Fixture format | Adapter-agnostic JSON cassettes. HAR 1.2 import/export for http. |
 | License | MIT. Fully open source; users can do whatever they want with the SDK. |
 | Tooling | uv (env + `uv.lock`), ruff, mypy strict, pytest, import-linter. CI on GitHub Actions: Linux, macOS and Windows × Python 3.11–3.14. |
 
