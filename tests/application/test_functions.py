@@ -575,3 +575,10 @@ async def test_unknown_or_unimplemented_functions_are_e903() -> None:
     tpl = operation("- use: acme.declared", extra=REQUIRES, functions=[declared])
     with pytest.raises(ConfigurationError, match="no implementation"):
         await execute(tpl, functions=[declared])
+
+
+async def test_null_optional_arguments_count_as_omitted() -> None:
+    received.clear()
+    tpl = op("- use: acme.slug\n  with: { text: Hi There, sep: null }")
+    assert (await run(tpl)).prev == "hi-there"  # the schema default applies
+    assert received[0]["sep"] == "-"

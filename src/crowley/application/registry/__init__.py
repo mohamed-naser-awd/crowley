@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from crowley.application.adapters import BaseAdapter
-from crowley.application.extractors import BaseExtractor, extractor_function_specs
+from crowley.application.extractors import BaseExtractor, extractor_functions
 from crowley.application.registry.functions import (
     Handler,
     HandlerBinding,
@@ -142,7 +142,7 @@ class Registry:
                 "E906", f"namespace {spec.name!r} is already used by functions"
             )
         self.extractors[spec.name] = extractor
-        for fn in extractor_function_specs(spec):
+        for fn in extractor_functions(spec):
             self._put_function(fn, replace=True, owned=True)
 
     def add_helper(self, spec: HelperSpec, *, replace: bool = False) -> None:

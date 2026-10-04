@@ -10,8 +10,13 @@ from typing import Any
 from crowley.application.adapters import BaseAdapter
 from crowley.application.adapters.service import AdapterService
 from crowley.application.events import EventBus
+from crowley.application.extractors import BaseExtractor
 from crowley.application.ports import HostResolver, SchemaValidator, SecretsProvider
-from crowley.application.registry import Registry, adapter_replace_problem
+from crowley.application.registry import (
+    Registry,
+    adapter_replace_problem,
+    extractor_replace_problem,
+)
 from crowley.application.runtime import (
     Executor,
     Frame,
@@ -62,6 +67,8 @@ class PreparedRun:
     limits: Limits | None = None
     adapters: dict[str, BaseAdapter] = field(default_factory=dict)
     """Per-process adapter overrides (``cw.init(..., adapters={...})``)."""
+    extractors: dict[str, BaseExtractor] = field(default_factory=dict)
+    """Per-process extractor overrides (``cw.init(..., extractors={...})``)."""
 
 
 class RunOperation:
@@ -97,6 +104,7 @@ class RunOperation:
         secrets: Mapping[str, str] | None = None,
         limits: Limits | None = None,
         adapters: Mapping[str, BaseAdapter] | None = None,
+        extractors: Mapping[str, BaseExtractor] | None = None,
     ) -> PreparedRun:
         op = _select(template, operation)
         return PreparedRun(
@@ -106,7 +114,22 @@ class RunOperation:
             secrets=self._resolve_secrets(template, secrets or {}),
             limits=limits,
             adapters=self._check_overrides(adapters or {}),
+            extractors=self._check_extractors(extractors or {}),
         )
+
+    def _check_extractors(
+        self, extractors: Mapping[str, BaseExtractor]
+    ) -> dict[str, BaseExtractor]:
+        for name, extractor in extractors.items():
+            existing = self._registry.extractor(name)
+            if existing is None:
+                raise ConfigurationError(
+                    "E906", f"cannot override unknown extractor {name!r} for a process"
+                )
+            problem = extractor_replace_problem(existing, extractor)
+            if problem is not None:
+                raise ConfigurationError("E906", problem)
+        return dict(extractors)
 
     def _check_overrides(self, adapters: Mapping[str, BaseAdapter]) -> dict[str, BaseAdapter]:
         for name, adapter in adapters.items():
@@ -235,6 +258,7 @@ class RunOperation:
             schemas=self._schemas,
             template=template,
             adapters=service,
+            extractors={**self._registry.extractors, **prepared.extractors},
         )
         run_info: dict[str, Value] = {
             "id": state.run.id,

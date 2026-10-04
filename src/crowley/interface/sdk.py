@@ -177,6 +177,7 @@ class Crowley(NotifierScope):
         limits: Limits | None = None,
         notifiers: ProcessNotifiers | None = None,
         adapters: Mapping[str, BaseAdapter] | None = None,
+        extractors: Mapping[str, BaseExtractor] | None = None,
     ) -> Process:
         """Create a process for one operation. Inputs and secrets are validated now.
 
@@ -188,7 +189,13 @@ class Crowley(NotifierScope):
             ref, operation = _split_ref(template, operation)
             template = self.load(ref)
         prepared = self._runner.prepare(
-            template, operation, inputs=inputs, secrets=secrets, limits=limits, adapters=adapters
+            template,
+            operation,
+            inputs=inputs,
+            secrets=secrets,
+            limits=limits,
+            adapters=adapters,
+            extractors=extractors,
         )
         return Process(
             runner=self._runner,
@@ -216,6 +223,7 @@ class Crowley(NotifierScope):
         limits: Limits | None = None,
         notifiers: ProcessNotifiers | None = None,
         adapters: Mapping[str, BaseAdapter] | None = None,
+        extractors: Mapping[str, BaseExtractor] | None = None,
     ) -> RunResult:
         """Shortcut for ``init(...)`` followed by ``run()``."""
         process = await self._init_async(
@@ -226,6 +234,7 @@ class Crowley(NotifierScope):
             limits=limits,
             notifiers=notifiers,
             adapters=adapters,
+            extractors=extractors,
         )
         return await process.run()
 
@@ -239,6 +248,7 @@ class Crowley(NotifierScope):
         limits: Limits | None = None,
         notifiers: ProcessNotifiers | None = None,
         adapters: Mapping[str, BaseAdapter] | None = None,
+        extractors: Mapping[str, BaseExtractor] | None = None,
     ) -> RunResult:
         """Synchronous ``run``; not usable inside a running event loop (E902)."""
         return run_sync(
@@ -250,6 +260,7 @@ class Crowley(NotifierScope):
                 limits=limits,
                 notifiers=notifiers,
                 adapters=adapters,
+                extractors=extractors,
             )
         )
 
@@ -263,6 +274,7 @@ class Crowley(NotifierScope):
         limits: Limits | None = None,
         notifiers: ProcessNotifiers | None = None,
         adapters: Mapping[str, BaseAdapter] | None = None,
+        extractors: Mapping[str, BaseExtractor] | None = None,
     ) -> AsyncIterator[Value]:
         """Shortcut for ``init(...)`` followed by ``stream()``."""
         process = await self._init_async(
@@ -273,6 +285,7 @@ class Crowley(NotifierScope):
             limits=limits,
             notifiers=notifiers,
             adapters=adapters,
+            extractors=extractors,
         )
         async for item in process.stream():
             yield item
