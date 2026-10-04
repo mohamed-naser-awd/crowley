@@ -367,7 +367,8 @@ Literal queries are compiled and checked at template load time, so the static va
 - `Process` owns one `RunState`, one `EventBus`, its `NotifierSet`, its `ProcessRegistryView`, its adapter sessions and a cancellation token. Its bus dispatches over **global set → process registries → process set**, merged by priority (SPEC §17.3).
 - **Index cache.** The bus caches a per-event-name index of matching notifiers. The cache key is the combined versions of all reachable sets, so adding or removing a notifier anywhere invalidates it without locking.
 - `EventBus.intercept(event)` returns the first `Action`. `EventBus.notify(event)` sends frozen copies to observers and the `TraceSink`.
-- **Revalidation.** Assigning to a mutable event field marks the event `dirty`, and the emitting pipeline revalidates it (SPEC §17.1).
+- **Revalidation.** `intercept` reports `changed` when at least one interceptor with `revalidate=True` ran, and the emitting pipeline then revalidates the event's mutable fields (SPEC §17.1). Interceptors usually edit payloads in place (`event.kwargs["x"] = ...`), which attribute-level dirty tracking can't see, so any revalidating interceptor counts as a change.
+- **Modules.** `domain/events` holds the catalog (`CATALOG`, one dataclass per event with `MUTABLE` and `ALLOWED`) and the actions. `application/events/notifiers.py` holds `Notifier`, `NotifierSet`, `NotifierRegistry`, `NotifierHandle` and the `NotifierScope` mixin shared by `Crowley` and `Process`. `application/events/bus.py` holds `EventBus` (`intercept`, `notify`, `publish`).
 - **Shared parts:** compiled templates, the registry, adapter instances (not sessions) and the global `NotifierSet` are read-mostly and safe for concurrent processes.
 
 ---
