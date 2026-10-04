@@ -848,6 +848,13 @@ All four have these in common:
 
 `flatten: true` (all four) concatenates list results instead of nesting them.
 
+**Details:**
+- The body's initial `prev` is the paginate function's own `prev`.
+- With `stop_on_empty`, an empty page (`null` or `[]`) ends pagination and is not collected.
+- `page.before` → `skip` skips the body for that page. `page.after` may change `value` or set `stop`.
+- `by_offset`'s `max_items` also truncates a flattened result.
+- `by_next_link` resolves relative links against the current page URL.
+
 ### 12.2 `transform.*`
 
 Use these when a transformation is too large for one expression or must be named in traces.
@@ -870,6 +877,11 @@ In every `transform.*` function, `items` is `x-crowley-from-prev`. If it is omit
 | `control.retry` | block | `{times, backoff='exponential', delay='1s', max_delay='30s', until?}` re-runs the body on catchable errors, or until the lazy `until` (binds `result`) is true. |
 | `control.sleep` | plain | `{duration}` |
 | `control.parallel` | block | `{branches: N}` runs the body N times concurrently with `branch.index`. Result: list. |
+
+- `control.retry` re-runs the body only on catchable errors. If `until` is still false after the last attempt, it fails with `E502`.
+- `control.sleep` passes its incoming `prev` through.
+- `control.parallel` is bounded by `limits.max_concurrency` and keeps branch order. If several branches fail, the first error is raised and the others are attached to `related`.
+- `transform.sort` puts `null` keys last, and mixed key types cause `E501`. `transform.group_by` keys must be strings or numbers.
 
 ### 12.4 `extract.*`
 
