@@ -55,6 +55,8 @@ class FunctionSpec:
     """Names a block function adds to its ``do:`` body (e.g. ``page``)."""
     adapter: str | None = None
     """For adapter-provided functions: the adapter whose exchanges this function performs."""
+    extractor: str | None = None
+    """For extractor-generated functions (``<name>.extract`` …): the extractor they use."""
     builtin: bool = False
 
     def __post_init__(self) -> None:

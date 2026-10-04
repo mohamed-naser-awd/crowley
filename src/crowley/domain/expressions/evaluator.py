@@ -257,7 +257,7 @@ class _Evaluator:
             raise TemplateSemanticError("E313", f"unknown helper {node.name!r}")
         if not spec.accepts(len(node.args)):
             raise TemplateSemanticError(
-                "E314", f"{node.name}() takes {spec.arity_text} arguments, got {len(node.args)}"
+                "E314", f"{node.name}() takes {spec.arity_text}, got {len(node.args)}"
             )
         args: list[object] = []
         for position, arg in enumerate(node.args):

@@ -610,6 +610,18 @@ Every function, built-in or custom, is described by a `FunctionSpec`:
 | `output` | JSON Schema for the result |
 | `description` | Shown by `crowley functions show` |
 | `events` | Custom event names this function may emit (e.g. `page.before`) |
+| `pure` | No side effects and no I/O. An unused result of a pure function is warning `W002`. |
+| `body_bindings` | Block functions only: names the function adds to its `do:` body (e.g. `page`, `branch`). |
+| `adapter` / `extractor` | Set on functions an adapter contributes or an extractor generates. This links them to `requires: ["adapter:…"]` / `["extractor:…"]`. |
+
+**Argument markers.** These are input-schema keywords on individual properties:
+
+| Marker | Meaning |
+|---|---|
+| `x-crowley-lazy: true` | Passed unevaluated (§11.3). |
+| `x-crowley-bindings: [names]` | Extra names a lazy argument's expression may use, e.g. `[result, page]`. |
+| `x-crowley-from-prev: true` | Filled from `prev` when omitted. |
+| `x-crowley-target: true` | The argument is an exchange target URL. For network adapters, literal hosts are checked against `permissions.hosts` at validation time (`E318`). |
 
 **Calling convention: everything is a keyword argument.** Crowley calls every handler as
 

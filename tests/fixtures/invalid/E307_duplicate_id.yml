@@ -1,0 +1,18 @@
+# expect: E307 operations.op.steps[1].id
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+operations:
+  op:
+    description: d
+    steps:
+      - id: a
+        log: x
+      - id: a
+        log: y
+    output:
+      schema: {}

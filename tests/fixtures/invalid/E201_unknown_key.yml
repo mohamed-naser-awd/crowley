@@ -1,0 +1,16 @@
+# expect: E201 bogus
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+bogus: 1
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+operations:
+  op:
+    description: d
+    steps:
+      - log: x
+    output:
+      schema: {}

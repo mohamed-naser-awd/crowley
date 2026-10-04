@@ -1,0 +1,18 @@
+# expect: E303 operations.op.steps[0].with.timeoutt
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+operations:
+  op:
+    description: d
+    steps:
+      - use: http.get
+        with:
+          url: https://api.example.com/
+          timeoutt: 5
+    output:
+      schema: {}

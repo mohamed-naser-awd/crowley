@@ -71,11 +71,14 @@ class HelperSpec:
 
     @property
     def arity_text(self) -> str:
+        """E.g. ``"1 argument"``, ``"2 to 3 arguments"``, ``"at least 1 argument"``."""
         if self.max_args is None:
-            return f"at least {self.min_args}"
-        if self.min_args == self.max_args:
-            return str(self.min_args)
-        return f"{self.min_args} to {self.max_args}"
+            count, last = f"at least {self.min_args}", self.min_args
+        elif self.min_args == self.max_args:
+            count, last = str(self.min_args), self.min_args
+        else:
+            count, last = f"{self.min_args} to {self.max_args}", self.max_args
+        return f"{count} argument{'' if last == 1 else 's'}"
 
 
 @dataclass(slots=True)

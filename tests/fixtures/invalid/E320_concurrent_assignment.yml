@@ -1,0 +1,19 @@
+# expect: E320 operations.op.steps[1].do[0].set.n
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+operations:
+  op:
+    description: d
+    steps:
+      - set: {n: 0}
+      - for_each: [1, 2]
+        concurrency: 2
+        do:
+          - set: {n: 1}
+    output:
+      schema: {}

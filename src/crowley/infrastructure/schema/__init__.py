@@ -52,14 +52,15 @@ def _rewrite_ref(ref: str, names: frozenset[str], path: TemplatePath) -> str:
 
 
 def _prepare(
-    schema: Mapping[str, Any] | bool, definitions: Mapping[str, Any] | None
+    schema: Mapping[str, Any] | bool, definitions: Mapping[str, Any] | None, *, hoist: bool = True
 ) -> Mapping[str, Any] | bool:
+    """Rewrite template refs; with ``hoist``, copy the shared schemas into ``$defs``."""
     defs = dict(definitions or {})
     names = frozenset(defs)
     if isinstance(schema, bool):
         return schema
     rewritten: dict[str, Any] = _rewrite(copy.deepcopy(dict(schema)), names, TemplatePath())
-    if defs:
+    if defs and hoist:
         hoisted = {
             f"{_DEFS_PREFIX}{name}": _rewrite(
                 copy.deepcopy(value), names, TemplatePath.of("schemas", name)
@@ -129,8 +130,9 @@ class JsonSchemaValidator:
     def check_schema(
         self, schema: Mapping[str, Any] | bool, *, definitions: Mapping[str, Any] | None = None
     ) -> list[SchemaViolation]:
+        # Shared schemas are checked on their own; here only this schema's structure and refs.
         try:
-            prepared = _prepare(schema, definitions)
+            prepared = _prepare(schema, definitions, hoist=False)
         except _RefProblemError as exc:
             return [SchemaViolation(path=exc.path, message=str(exc), keyword="$ref")]
         if not isinstance(prepared, bool | Mapping):

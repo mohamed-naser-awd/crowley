@@ -1,0 +1,16 @@
+# expect: E302 requires[0]
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+requires: [mycorp.decode@^1]
+operations:
+  op:
+    description: d
+    steps:
+      - log: x
+    output:
+      schema: {}

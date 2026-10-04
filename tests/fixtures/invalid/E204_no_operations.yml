@@ -1,0 +1,9 @@
+# expect: E204 operations
+crowley: 1
+id: acme/fixture
+version: 1.0.0
+name: Fixture
+description: Invalid on purpose.
+permissions:
+  hosts: [api.example.com]
+operations: {}

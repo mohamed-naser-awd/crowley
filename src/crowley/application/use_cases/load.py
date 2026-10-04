@@ -6,7 +6,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from crowley.application.compiler import Compiler
-from crowley.application.ports import Origin, TemplateParser, TemplateSource, TemplateText
+from crowley.application.ports import (
+    Origin,
+    PositionMap,
+    TemplateParser,
+    TemplateSource,
+    TemplateText,
+)
 from crowley.domain.errors import CrowleyError, Diagnostic, TemplateParseError, ValidationReport
 from crowley.domain.template import Template
 
@@ -16,6 +22,7 @@ class LoadResult:
     template: Template | None
     report: ValidationReport
     origin: Origin | None = None
+    positions: PositionMap | None = None
 
 
 class LoadTemplate:
@@ -51,6 +58,7 @@ class LoadTemplate:
             template=result.template,
             report=ValidationReport(diagnostics=result.diagnostics),
             origin=text.origin,
+            positions=document.positions,
         )
 
     async def __call__(self, ref: str, *, relative_to: Origin | None = None) -> Template:
