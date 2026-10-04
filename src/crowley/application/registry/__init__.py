@@ -6,6 +6,12 @@ from typing import Protocol
 
 from crowley.application.adapters import BaseAdapter
 from crowley.application.extractors import BaseExtractor, extractor_function_specs
+from crowley.application.registry.functions import (
+    Handler,
+    HandlerBinding,
+    RegisteredFunction,
+    function,
+)
 from crowley.domain.common import RESERVED_NAMESPACES
 from crowley.domain.errors import ConfigurationError
 from crowley.domain.expressions import HelperSpec, HelperTable
@@ -24,13 +30,20 @@ class Registry:
     adapters: dict[str, BaseAdapter] = field(default_factory=dict)
     extractors: dict[str, BaseExtractor] = field(default_factory=dict)
     helpers: HelperTable = field(default_factory=HelperTable.builtin)
+    handlers: dict[str, RegisteredFunction] = field(default_factory=dict)
+    """Functions with a Python handler. Spec-only functions validate but can't be called."""
 
     # ── registration ──────────────────────────────────────────────────────────
-    def add_function(self, spec: FunctionSpec, *, replace: bool = False) -> None:
-        self._put_function(spec, replace=replace, owned=False)
+    def add_function(
+        self, function: FunctionSpec | RegisteredFunction, *, replace: bool = False
+    ) -> None:
+        self._put_function(function, replace=replace, owned=False)
 
-    def _put_function(self, spec: FunctionSpec, *, replace: bool, owned: bool) -> None:
+    def _put_function(
+        self, function: FunctionSpec | RegisteredFunction, *, replace: bool, owned: bool
+    ) -> None:
         """``owned``: registered by the adapter/extractor that owns the namespace."""
+        spec = function.spec if isinstance(function, RegisteredFunction) else function
         namespace = spec.namespace
         if namespace in RESERVED_NAMESPACES and not (spec.builtin or owned):
             raise ConfigurationError(
@@ -43,6 +56,10 @@ class Registry:
         if spec.name in self.functions and not replace:
             raise ConfigurationError("E901", f"function {spec.name!r} is already registered")
         self.functions[spec.name] = spec
+        if isinstance(function, RegisteredFunction):
+            self.handlers[spec.name] = function
+        else:
+            self.handlers.pop(spec.name, None)
 
     def add_adapter(self, adapter: BaseAdapter, *, replace: str | None = None) -> None:
         spec = adapter.spec
@@ -119,6 +136,9 @@ class Registry:
     def function(self, name: str) -> FunctionSpec | None:
         return self.functions.get(name)
 
+    def handler(self, name: str) -> RegisteredFunction | None:
+        return self.handlers.get(name)
+
     def adapter(self, name: str) -> BaseAdapter | None:
         return self.adapters.get(name)
 
@@ -167,6 +187,14 @@ class Registry:
     def _drop_namespace(self, namespace: str) -> None:
         for name in [n for n, s in self.functions.items() if s.namespace == namespace]:
             del self.functions[name]
+            self.handlers.pop(name, None)
 
 
-__all__ = ["Plugin", "Registry"]
+__all__ = [
+    "Handler",
+    "HandlerBinding",
+    "Plugin",
+    "RegisteredFunction",
+    "Registry",
+    "function",
+]

@@ -13,7 +13,7 @@ from crowley.application.adapters import BaseAdapter
 from crowley.application.compiler import Compiler, StaticValidator
 from crowley.application.extractors import BaseExtractor
 from crowley.application.ports import Origin, TemplateSource, TemplateText
-from crowley.application.registry import Plugin, Registry
+from crowley.application.registry import Plugin, RegisteredFunction, Registry
 from crowley.application.use_cases import LoadTemplate, ValidateTemplate
 from crowley.domain.errors import ConfigurationError, ValidationReport
 from crowley.domain.expressions import HelperSpec
@@ -46,7 +46,7 @@ class Crowley:
         self,
         *,
         sources: Iterable[TemplateSource] = (),
-        functions: Iterable[FunctionSpec] = (),
+        functions: Iterable[FunctionSpec | RegisteredFunction] = (),
         adapters: Iterable[BaseAdapter] = (),
         extractors: Iterable[BaseExtractor] = (),
         plugins: Iterable[Plugin] = (),
@@ -65,11 +65,12 @@ class Crowley:
             )
         for plugin in plugins:
             self.registry.install(plugin)
-        for spec in functions:
-            self.register_function(spec)
+        for fn in functions:
+            self.register_function(fn)
         for helper in helpers:
             self.registry.add_helper(helper)
         schemas = JsonSchemaValidator()
+        self.schemas = schemas
         self._loader = LoadTemplate(
             sources=[*sources, FileSource()],
             parser=RuamelTemplateParser(),
@@ -82,8 +83,13 @@ class Crowley:
         )
 
     # ── registration ──────────────────────────────────────────────────────────
-    def register_function(self, spec: FunctionSpec) -> None:
-        self.registry.add_function(spec)
+    def register_function(
+        self, function: FunctionSpec | RegisteredFunction, *, replace: bool = False
+    ) -> None:
+        """Register a function: a ``@function``-decorated handler, or a bare spec."""
+        self.registry.add_function(function, replace=replace)
+
+    register = register_function
 
     def register_adapter(self, adapter: BaseAdapter, *, replace: str | None = None) -> None:
         self.registry.add_adapter(adapter, replace=replace)

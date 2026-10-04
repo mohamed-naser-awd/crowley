@@ -1,12 +1,14 @@
 """Helpers to run compiled operations through the executor without the Process layer."""
 
 import textwrap
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from crowley import Crowley
 from crowley.application.events import EventBus, NotifierSet
-from crowley.application.runtime import Executor, Frame, RunState
+from crowley.application.registry import RegisteredFunction
+from crowley.application.runtime import Executor, Frame, FunctionInvoker, RunState
 from crowley.domain.events import RunInfo
 from crowley.domain.expressions import EvalEnv
 from crowley.domain.template import Limits, Template
@@ -23,19 +25,26 @@ permissions:
 """
 
 
-def template(body: str) -> Template:
+def template(body: str, functions: Sequence[RegisteredFunction] = ()) -> Template:
     """Load ``HEADER + body`` (dedented) through the full validation pipeline."""
     text = HEADER + textwrap.dedent(body)
-    return Crowley().load_text(text, name="runtime.yml")
+    return Crowley(functions=functions).load_text(text, name="runtime.yml")
 
 
-def operation(steps: str, *, output: str = "schema: {}", extra: str = "") -> Template:
+def operation(
+    steps: str,
+    *,
+    output: str = "schema: {}",
+    extra: str = "",
+    functions: Sequence[RegisteredFunction] = (),
+) -> Template:
     """A template with one operation ``op`` made of ``steps`` (YAML list, dedented)."""
     indented_steps = textwrap.indent(textwrap.dedent(steps).strip(), "      ")
     indented_output = textwrap.indent(textwrap.dedent(output).strip(), "      ")
     return template(
         f"{textwrap.dedent(extra)}\noperations:\n  op:\n    description: d\n"
-        f"    steps:\n{indented_steps}\n    output:\n{indented_output}\n"
+        f"    steps:\n{indented_steps}\n    output:\n{indented_output}\n",
+        functions,
     )
 
 
@@ -56,6 +65,7 @@ async def execute(
     inputs: dict[str, Value] | None = None,
     notifiers: NotifierSet | None = None,
     limits: Limits | None = None,
+    functions: Sequence[RegisteredFunction] = (),
     **state_options: Any,
 ) -> Run:
     op = tpl.operation("op")
@@ -69,5 +79,10 @@ async def execute(
     )
     inputs = inputs or {}
     frame = Frame(roots={"inputs": inputs, "secrets": {}, "run": {"id": "run-1"}})
-    outcome = await Executor(state).run_block(op.steps, frame, inputs)
+    executor = Executor(state)
+    crowley = Crowley(functions=functions)
+    FunctionInvoker(
+        state, executor, registry=crowley.registry, schemas=crowley.schemas, template=tpl
+    )
+    outcome = await executor.run_block(op.steps, frame, inputs)
     return Run(state=state, prev=outcome.prev, frame=frame)

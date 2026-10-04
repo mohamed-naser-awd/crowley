@@ -173,7 +173,13 @@ class StepPipeline:
     async def _attempt(self, step: Step, info: StepInfo, frame: Frame, prev: Value) -> StepOutcome:
         state = self._state
         prepare = self._prepare.get(step.kind)
-        kwargs = await prepare(step, frame, prev) if prepare is not None else None
+        try:
+            kwargs = await prepare(step, frame, prev) if prepare is not None else None
+        except CrowleyError:
+            # Keep the guarantee: step.before fires before step.error, even when the
+            # arguments themselves fail to evaluate.
+            await state.publish(StepBefore, step=info, frame=frame, scope_prev=prev, prev=prev)
+            raise
         before, outcome = await state.publish(
             StepBefore, step=info, frame=frame, scope_prev=prev, prev=prev, kwargs=kwargs
         )

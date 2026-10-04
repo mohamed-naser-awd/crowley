@@ -94,16 +94,16 @@ class RunState:
         The event object is always returned so callers can read back mutable fields. The scope
         view, the costly part, is only built when some notifier listens to this event.
         """
-        listened = self.bus.has_listeners(cls.NAME)
         event = cls(
             timestamp=self.now(),
             run=self.run,
             step=step,
             depth=frame.depth if frame is not None else 0,
             iteration=frame.iteration if frame is not None else None,
-            scope=MappingProxyType(frame.scope(scope_prev)) if listened and frame else _EMPTY,
             **fields,
         )
-        if not listened:
+        if not self.bus.has_listeners(event.name):
             return event, NOTHING
+        if frame is not None:
+            event.scope = MappingProxyType(frame.scope(scope_prev))
         return event, await self.bus.publish(event)
