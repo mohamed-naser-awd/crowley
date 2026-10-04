@@ -7,7 +7,7 @@ import pytest
 
 from crowley.application.events import NotifierSet
 from crowley.application.runtime import retry_delay
-from crowley.domain.common import Duration
+from crowley.domain.common import Duration, SemVer
 from crowley.domain.errors import (
     ConfigurationError,
     ControlError,
@@ -16,6 +16,7 @@ from crowley.domain.errors import (
     LimitError,
     ValidationError,
 )
+from crowley.domain.functions import FunctionSpec
 from crowley.domain.steps import RetrySpec
 from crowley.domain.template import Limits
 from tests.application.runtime_support import execute, operation
@@ -201,15 +202,11 @@ async def test_set_scoping() -> None:
     assert run.frame.vars == {"a": 2}
 
 
-async def test_use_needs_an_invoker() -> None:
-    tpl = operation(
-        """
-        - use: http.get
-          with: { url: "https://api.example.com/x" }
-        """
-    )
+async def test_spec_only_functions_cannot_run() -> None:
+    declared = FunctionSpec(name="acme.declared", version=SemVer.parse("1.0.0"))
+    tpl = operation("- use: acme.declared", extra='requires: ["acme.*@^1"]', functions=[declared])
     with pytest.raises(ConfigurationError) as info:
-        await execute(tpl)
+        await execute(tpl, functions=[declared])
     assert info.value.code == "E903"
 
 
