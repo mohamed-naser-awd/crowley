@@ -316,7 +316,7 @@ Every step is a mapping with **exactly one** kind key (§7.2). It can also have:
 | `name` | string | Human label, used in traces. |
 | `description` | string | |
 | `when` | expression → bool | Guard. If false, the step is skipped, its result is `null`, and `step.skipped` is emitted. |
-| `on_error` | see §16.3 | Error policy. Not allowed on `break`, `continue`, `return` or `set`. |
+| `on_error` | see §16.3 | Error policy. Not allowed on `break`, `continue`, `return` or `set` (`E329`). |
 | `timeout` | duration | Wall-clock timeout for the step, including nested blocks (`E504`). |
 
 ### 7.2 Step kinds
@@ -1122,8 +1122,8 @@ output:
 
 | Stage | When | Checks | Error range |
 |---|---|---|---|
-| 1. Parse | load | YAML syntax, duplicate keys, custom tags, `crowley` version supported | E1xx |
-| 2. Meta-schema | load | Structure against the published template meta-schema (`crowley schema`) | E2xx |
+| 1. Parse | load | YAML syntax, custom tags and merge keys (`E101`), duplicate keys (`E102`), unsupported `crowley` version (`E103`), template file or ref not found (`E104`) | E1xx |
+| 2. Meta-schema | load | Structure against the published template meta-schema (`crowley schema`): unknown key (`E201`), missing required key (`E202`), defaults for an unknown namespace (`E203`), no operations (`E204`), wrong type, pattern or format, including YAML values that aren't plain JSON data such as unquoted dates (`E205`) | E2xx |
 | 3. Static semantic | load (no I/O) | See the list below | E3xx |
 | 4. Runtime | per run | inputs, secrets, function args (after notifiers), function results (after notifiers), emitted items, `assert` | E4xx |
 | 5. Output | end of run | Final value against `output.schema`, and no bytes or handles | E405 |
@@ -1161,6 +1161,8 @@ Stages 1–3 run once per template. The compiled template is immutable and reusa
 | W002 | (warning) Step result is never used and the step has no `id` reference (pure functions only) |
 | E326 | Field spec uses a query language or `attr` the extractor doesn't support |
 | E327 | Literal extractor query doesn't compile (bad CSS / XPath / JSONPath / regex) |
+| E328 | Unknown expression root or binding, e.g. `${{ row }}` when the loop says `as: person` |
+| E329 | `on_error` on a step kind that doesn't allow it (`break`, `continue`, `return`, `set`) |
 | W003 | (warning) Template function not used by any operation |
 
 ---
