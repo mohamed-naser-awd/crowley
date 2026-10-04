@@ -11,7 +11,7 @@ import copy
 import inspect
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from crowley.application.ports import CompiledSchema, SchemaValidator
 from crowley.application.registry import RegisteredFunction, Registry
@@ -43,6 +43,9 @@ from crowley.domain.steps import MapNode, UseStep
 from crowley.domain.template import Template, TemplateFunction
 from crowley.domain.values import Value
 
+if TYPE_CHECKING:
+    from crowley.application.adapters.service import AdapterService
+
 
 @dataclass(frozen=True, slots=True)
 class _Schemas:
@@ -66,7 +69,9 @@ class FunctionInvoker:
         registry: Registry,
         schemas: SchemaValidator,
         template: Template,
+        adapters: "AdapterService | None" = None,
     ) -> None:
+        self._adapters = adapters
         self._state = state
         self._executor = executor
         self._registry = registry
@@ -243,6 +248,7 @@ class FunctionInvoker:
             prev=kwargs.get("prev"),
             body=body,
             defaults=self._template.defaults,
+            adapters=self._adapters,
         )
         bound = fn.binding.bind(kwargs)
         try:

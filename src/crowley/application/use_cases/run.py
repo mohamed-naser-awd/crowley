@@ -7,9 +7,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from crowley.application.adapters import BaseAdapter
+from crowley.application.adapters.service import AdapterService
 from crowley.application.events import EventBus
-from crowley.application.ports import SchemaValidator, SecretsProvider
-from crowley.application.registry import Registry
+from crowley.application.ports import HostResolver, SchemaValidator, SecretsProvider
+from crowley.application.registry import Registry, adapter_replace_problem
 from crowley.application.runtime import (
     Executor,
     Frame,
@@ -58,6 +60,8 @@ class PreparedRun:
     inputs: dict[str, Value]
     secrets: dict[str, str] = field(repr=False)
     limits: Limits | None = None
+    adapters: dict[str, BaseAdapter] = field(default_factory=dict)
+    """Per-process adapter overrides (``cw.init(..., adapters={...})``)."""
 
 
 class RunOperation:
@@ -72,7 +76,9 @@ class RunOperation:
         clock: Clock | None = None,
         limits: Limits | None = None,
         secrets: SecretsProvider | None = None,
+        resolver: HostResolver | None = None,
     ) -> None:
+        self._resolver = resolver
         self._registry = registry
         self._schemas = schemas
         self._env_factory = env_factory
@@ -90,6 +96,7 @@ class RunOperation:
         inputs: Mapping[str, Value] | None = None,
         secrets: Mapping[str, str] | None = None,
         limits: Limits | None = None,
+        adapters: Mapping[str, BaseAdapter] | None = None,
     ) -> PreparedRun:
         op = _select(template, operation)
         return PreparedRun(
@@ -98,7 +105,20 @@ class RunOperation:
             inputs=self.validate_inputs(template, op, dict(inputs or {})),
             secrets=self._resolve_secrets(template, secrets or {}),
             limits=limits,
+            adapters=self._check_overrides(adapters or {}),
         )
+
+    def _check_overrides(self, adapters: Mapping[str, BaseAdapter]) -> dict[str, BaseAdapter]:
+        for name, adapter in adapters.items():
+            existing = self._registry.adapter(name)
+            if existing is None:
+                raise ConfigurationError(
+                    "E906", f"cannot override unknown adapter {name!r} for a process"
+                )
+            problem = adapter_replace_problem(existing, adapter)
+            if problem is not None:
+                raise ConfigurationError("E906", problem)
+        return dict(adapters)
 
     def validate_inputs(
         self, template: Template, op: Operation, inputs: dict[str, Value]
@@ -169,10 +189,18 @@ class RunOperation:
         )
         if on_state is not None:
             on_state(state)
+        service = AdapterService(
+            state=state,
+            registry=self._registry,
+            schemas=self._schemas,
+            permissions=template.permissions,
+            resolver=self._resolver,
+            overrides=prepared.adapters,
+        )
         started = time.monotonic()
         try:
             try:
-                result = await self._run(state, prepared)
+                result = await self._run(state, prepared, service)
             except CrowleyError as exc:
                 _redact(exc, prepared.secrets)
                 await state.publish(RunErrorEvent, error=exc)
@@ -186,9 +214,10 @@ class RunOperation:
                 operation=op.name,
             )
         finally:
+            await service.close()
             output.close()
 
-    async def _run(self, state: RunState, prepared: PreparedRun) -> Value:
+    async def _run(self, state: RunState, prepared: PreparedRun, service: AdapterService) -> Value:
         template, op = prepared.template, prepared.operation
         inputs = prepared.inputs
         start, outcome = await state.publish(RunStart, inputs=inputs)
@@ -200,7 +229,12 @@ class RunOperation:
 
         executor = Executor(state)
         FunctionInvoker(
-            state, executor, registry=self._registry, schemas=self._schemas, template=template
+            state,
+            executor,
+            registry=self._registry,
+            schemas=self._schemas,
+            template=template,
+            adapters=service,
         )
         run_info: dict[str, Value] = {
             "id": state.run.id,

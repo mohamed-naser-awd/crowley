@@ -346,6 +346,8 @@ resolve adapter (process override → registry; missing → E607)
 
 Adapter sessions are closed in `RunOperation`'s `finally` block (success, failure or cancellation).
 
+Modules: `application/adapters/base.py` (`BaseAdapter`, `AdapterContext`), `guards.py` (`PermissionGuard` with SSRF checks through the `HostResolver` port, `RateLimiter`) and `service.py` (`AdapterService`: one per process, with lazily opened sessions and isolated sessions scoped by a `ContextVar`). `FunctionContext.exchange()` and `.adapter()` delegate to the process's `AdapterService`.
+
 ### 4.6 Extraction (`FieldExtractionEngine`)
 
 The engine is format-agnostic. It walks a compiled `FieldSpec` and calls only the three extractor methods:

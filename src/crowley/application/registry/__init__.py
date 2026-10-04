@@ -18,6 +18,31 @@ from crowley.domain.expressions import HelperSpec, HelperTable
 from crowley.domain.functions import FunctionSpec, Requirement
 
 
+def adapter_replace_problem(old: BaseAdapter, new: BaseAdapter) -> str | None:
+    """Why ``new`` can't stand in for ``old`` (SPEC §13.2), or ``None`` if it can."""
+    a, b = old.spec, new.spec
+    if a.name != b.name:
+        return f"adapter {b.name!r} cannot replace {a.name!r}"
+    if a.version.major != b.version.major:
+        return f"adapter {b.name!r} {b.version} is not compatible with {a.version}"
+    if a.request_schema != b.request_schema or a.response_schema != b.response_schema:
+        return f"adapter {b.name!r} changes the request or response schema"
+    return None
+
+
+def extractor_replace_problem(old: BaseExtractor, new: BaseExtractor) -> str | None:
+    """Why ``new`` can't stand in for ``old`` (SPEC §13.8), or ``None`` if it can."""
+    a, b = old.spec, new.spec
+    if a.name != b.name:
+        return f"extractor {b.name!r} cannot replace {a.name!r}"
+    if not set(a.query_languages) <= set(b.query_languages):
+        return (
+            f"extractor {b.name!r} must support the query languages "
+            f"{', '.join(a.query_languages)} to replace the existing one"
+        )
+    return None
+
+
 class Plugin(Protocol):
     """Anything with ``register(registry)``: bundles functions, adapters, extractors and helpers."""
 
@@ -71,14 +96,11 @@ class Registry:
                     f"adapter {spec.name!r} is already registered",
                     hint=f"pass replace={spec.name!r} to swap it",
                 )
-            old = existing.spec
-            if old.version.major != spec.version.major or (
-                old.request_schema != spec.request_schema
-                or old.response_schema != spec.response_schema
-            ):
+            problem = adapter_replace_problem(existing, adapter)
+            if problem is not None:
                 raise ConfigurationError(
                     "E906",
-                    f"adapter {spec.name!r} {spec.version} is not compatible with {old.version}",
+                    problem,
                     hint="a replacement must keep the major version and request/response schemas",
                 )
         elif replace is not None:
@@ -91,10 +113,11 @@ class Registry:
             self._drop_namespace(spec.name)
         self.adapters[spec.name] = adapter
         for fn in adapter.functions():
-            if fn.namespace != spec.name:
+            fn_spec = fn.spec if isinstance(fn, RegisteredFunction) else fn
+            if fn_spec.namespace != spec.name:
                 raise ConfigurationError(
                     "E903",
-                    f"adapter {spec.name!r} cannot register {fn.name!r} outside its namespace",
+                    f"adapter {spec.name!r} cannot register {fn_spec.name!r} outside its namespace",
                 )
             self._put_function(fn, replace=True, owned=True)
 
@@ -108,13 +131,9 @@ class Registry:
                     f"extractor {spec.name!r} is already registered",
                     hint=f"pass replace={spec.name!r} to swap it",
                 )
-            old = existing.spec
-            if not set(old.query_languages) <= set(spec.query_languages):
-                raise ConfigurationError(
-                    "E906",
-                    f"extractor {spec.name!r} must support the query languages "
-                    f"{', '.join(old.query_languages)} to replace the existing one",
-                )
+            problem = extractor_replace_problem(existing, extractor)
+            if problem is not None:
+                raise ConfigurationError("E906", problem)
             self._drop_namespace(spec.name)
         elif replace is not None:
             raise ConfigurationError("E906", f"cannot replace unknown extractor {replace!r}")
@@ -196,5 +215,7 @@ __all__ = [
     "Plugin",
     "RegisteredFunction",
     "Registry",
+    "adapter_replace_problem",
+    "extractor_replace_problem",
     "function",
 ]

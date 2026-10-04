@@ -926,7 +926,7 @@ process = cw.init(tpl, "op", adapters={"http": FakeHttp()}) # per-process overri
 
 - Adapter names follow the function-namespace rules (§1). Two adapters with the same name cause `E906`, unless `replace=` is used.
 - `replace="<name>"` requires a compatible contract: same major `version`, and `request_schema`/`response_schema` accepting the same shapes. Otherwise `E906`. Templates keep working unchanged.
-- A per-process override follows the same compatibility rule and only affects that process.
+- A per-process override follows the same compatibility rule and only affects that process. It can only replace an adapter that is already registered (`E906` otherwise).
 - Templates declare non-built-in adapters in `requires: ["adapter:ws@^1"]`. A missing adapter or incompatible version causes `E302`. Using a non-built-in adapter's functions without declaring it causes `E301`.
 - An adapter's `functions()` are registered in its own namespace when the adapter is registered.
 
@@ -950,6 +950,10 @@ merge: adapter config < defaults.<adapter> < function args → Exchange
 ```
 
 - `target_kind: local` adapters (e.g. files) are checked against `permissions.paths` (reserved for a later version). In v1, only `network` and `none` are allowed.
+- Adapters that follow redirect-like hops MUST call `await exchange.check_hop(uri)` before contacting each hop, so the hop is permission-checked before any connection is made. The pipeline also re-checks every hop the adapter reports in `ExchangeResult.meta["hops"]`.
+- `exchange.error` still fires for `E604`, `E7xx` and `E8xx` errors, but notifiers can't retry or replace them. A permission denial always stays a denial.
+- Exceptions an adapter raises that aren't `CrowleyError`s become `E602`. Each retry, whether from a notifier or the adapter's own policy, fires `exchange.before` again and counts toward `max_retries_per_step`.
+- `skip(result)` or `replace(value)` on `exchange.before` answers with that value as the response, without contacting the target. The value is still validated against `response_schema`.
 - Secrets are redacted in every serialized exchange (events, traces, cassettes).
 
 ### 13.4 Defaults and precedence
