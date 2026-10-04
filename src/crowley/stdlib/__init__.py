@@ -1,7 +1,4 @@
-"""Layer 3 (stdlib): built-in functions (paginate, transform, control, extract).
-
-M1 declares their contracts so templates can be validated; handlers arrive with the runtime (M3).
-"""
+"""Layer 3 (stdlib): built-in functions (paginate, transform, control, extract) (SPEC §12)."""
 
 from typing import Any
 
@@ -211,9 +208,14 @@ BUILTIN_FUNCTIONS: tuple[FunctionSpec, ...] = (
 
 
 def _handlers() -> dict[str, Handler]:
-    from crowley.stdlib import extract
+    from crowley.stdlib import control, extract, paginate, transform
 
-    return {"extract.auto": extract.auto}
+    return {
+        **paginate.HANDLERS,
+        **transform.HANDLERS,
+        **control.HANDLERS,
+        "extract.auto": extract.auto,
+    }
 
 
 class StdlibPlugin:

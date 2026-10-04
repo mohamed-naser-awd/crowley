@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from crowley.application.extractors.base import BaseExtractor
     from crowley.application.runtime.executor import Executor
     from crowley.domain.adapters import AdapterSpec
+    from crowley.domain.template import Limits
 
 _UNSET: Any = object()
 E = TypeVar("E", bound=Event)
@@ -94,6 +95,16 @@ class FunctionContext:
     @property
     def function(self) -> FunctionSpec:
         return self._spec
+
+    @property
+    def limits(self) -> "Limits":
+        """The effective limits of this run (SPEC §6)."""
+        return self._state.limits
+
+    async def sleep(self, seconds: float) -> None:
+        """Wait without blocking other work (uses the run's clock in tests)."""
+        if seconds > 0:
+            await self._state.sleep(seconds)
 
     @property
     def cancelled(self) -> bool:

@@ -2,7 +2,7 @@
 
 Crowley is a Python SDK that runs declarative scraping templates written in YAML. A template describes one site or API as a set of named **operations** (for example `get_page_info` and `get_page_people`). Each operation is built from a registry of **functions**, such as `http.get`, `html.extract` and `paginate.by_cursor`, combined with conditions and loops. All I/O goes through pluggable **adapters** (HTTP is built in), and all parsing goes through pluggable **extractors** (HTML, XML, JSON and text are built in). You can register your own. Every operation's output is checked against a schema, and invalid data stops the run. You can observe and change every step at runtime through **notifiers**.
 
-> **Status:** pre-alpha. Templates load, compile and are statically validated (M1), and operations run with notifiers, `prev` piping, template functions and your own Python functions (M2). Built-in adapters, extractors and stdlib functions arrive in M3.
+> **Status:** pre-alpha. Templates load, compile and are statically validated (M1). Operations run with notifiers, `prev` piping, template functions and your own Python functions (M2). The `http` adapter, the `html`/`xml`/`json`/`text` extractors and the `paginate.*`/`transform.*`/`control.*`/`extract.*` stdlib are built in (M3). Template composition (M4) and cassette-based tests (M5) come next.
 
 ## Validate a template
 
@@ -22,7 +22,13 @@ for diagnostic in report.diagnostics:
 
 ## Run an operation
 
-Built-in adapters and the stdlib (`http.*`, `paginate.*`, …) gain their implementations in M3. Until then, operations run with your own functions:
+From the command line:
+
+```bash
+uv run crowley run examples/company-directory/company-directory.yml get_page_people --input company=acme --secret API_TOKEN=... --format jsonl
+```
+
+From Python, with your own functions next to the built-in ones:
 
 ```python
 import asyncio
