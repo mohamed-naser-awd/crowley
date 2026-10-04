@@ -8,6 +8,8 @@ import crowley
 LAYER_PACKAGES = [
     "crowley.domain",
     "crowley.application",
+    "crowley.adapters",
+    "crowley.extractors",
     "crowley.stdlib",
     "crowley.infrastructure",
     "crowley.interface",

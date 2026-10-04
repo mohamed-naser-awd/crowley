@@ -20,7 +20,8 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
   - Operation names, step ids, variable names and template function names match `^[a-z_][a-z0-9_]*$`.
   - An operation is addressed as `<template-id>#<operation>`, e.g. `examples/company-directory#get_page_people`.
   - Function names are namespaced, `<namespace>.<name>`, with each part matching the pattern above.
-- **Reserved function namespaces:** `crowley`, `http`, `html`, `paginate`, `transform`, `control`, `browser`, `local`, `template`.
+- **Reserved function namespaces:** `crowley`, `paginate`, `transform`, `control`, `extract`, `local`, `template`, the built-in adapter `http`, the built-in extractors `html`, `xml`, `json`, `text`, and `browser` (kept for a future adapter).
+- **Adapter and extractor names** are function namespaces too (§13). A plugin adapter or extractor owns the namespace of its name.
 - **Reserved expression roots:** `prev`, `inputs`, `secrets`, `steps`, `vars`, `args`, `loop`, `run`, `page`, `item`, `result`, `error`.
 - **Reserved argument name:** `prev` cannot be declared as a property in any function input schema (`E903`).
 
@@ -170,7 +171,7 @@ operations:
     tests:
       - name: acme page
         inputs: { company: acme }
-        fixtures: fixtures/page-info-acme.har
+        fixtures: fixtures/page-info-acme.cassette.json
         expect: { snapshot: snapshots/page-info-acme.json }
 
   get_page_people:
@@ -202,7 +203,7 @@ operations:
     tests:
       - name: two pages
         inputs: { company: acme, max_pages: 2 }
-        fixtures: fixtures/people-acme.har
+        fixtures: fixtures/people-acme.cassette.json
         expect:
           min_items: 1
           assert:
@@ -261,18 +262,23 @@ permissions:
     - example.com:8443      # explicit port
 ```
 
-- Every outgoing request MUST target a permitted host. Otherwise it fails with `E604`.
-- This is checked **after** notifiers run (`request.before`) and again at **every redirect hop**.
+- Permissions apply to every exchange made through an adapter whose `target_kind` is `network` (§13.1), not just HTTP.
+- Every exchange MUST target a permitted host. Otherwise it fails with `E604`.
+- This is checked **after** notifiers run (`exchange.before`) and again at **every hop** the adapter reports, such as HTTP redirects.
 - **Static check:** a literal URL (or the literal origin of an interpolated URL) whose host is not permitted causes `E318`.
 - IP literals MUST be listed explicitly. `*` alone is not allowed.
-- **SSRF guard:** after DNS resolution, loopback, private, link-local and multicast addresses are blocked (`E604`) unless the integrator sets `HttpConfig(allow_private_networks=True)`.
+- **SSRF guard:** after DNS resolution, loopback, private, link-local and multicast addresses are blocked (`E604`) unless the integrator configures the adapter with `allow_private_networks=True` (e.g. `HttpAdapter(allow_private_networks=True)`).
 - A child template (§11.5) can only reach hosts that are allowed by **both** its own `permissions` and the parent's.
 
 ---
 
 ## 5. Defaults
 
-`defaults.<namespace>` provides default arguments for every function in that namespace. In v1 only `defaults.http` is defined (§13.3). Plugins MAY define defaults for their own namespace. The plugin declares a defaults schema, and defaults for an unknown namespace cause `E203`.
+`defaults.<namespace>` provides default arguments for a namespace.
+
+- **Adapters:** `defaults.<adapter>` is merged into every exchange of that adapter and validated against the adapter's `defaults_schema` (§13.4). For example, `defaults.http` sets headers, timeouts and retries for all HTTP calls.
+- **Other plugins:** a plugin MAY declare a defaults schema for its own namespace.
+- Defaults for an unknown namespace cause `E203`.
 
 ---
 
@@ -280,7 +286,7 @@ permissions:
 
 ```yaml
 limits:
-  max_requests: 500           # default 1000
+  max_requests: 500           # exchanges, any adapter; default 1000
   max_duration: 10m           # default 30m
   max_items: 10000            # emitted items, default 100000
   max_depth: 8                # nested blocks / template calls, default 16
@@ -637,17 +643,18 @@ async def each_region(ctx: FunctionContext, regions: list, **kwargs) -> list:
     return results
 ```
 
-- **Defaulting from `prev`.** An input property marked `"x-crowley-from-prev": true` is filled from `prev` when it is absent from `with:`. This happens before validation, so `required` still applies. For example, `html.extract.html` and `transform.*.items` work this way. The static validator treats such properties as satisfied when they are omitted.
+- **Defaulting from `prev`.** An input property marked `"x-crowley-from-prev": true` is filled from `prev` when it is absent from `with:`. This happens before validation, so `required` still applies. For example, `<extractor>.extract.source` (and the other extractor functions) and `transform.*.items` work this way. The static validator treats such properties as satisfied when they are omitted.
 - Handlers MAY be sync. Sync handlers run in a worker thread.
-- Handlers MUST NOT perform I/O except through `FunctionContext` ports (`ctx.http`, `ctx.html`, ...). This is a contract rule, so that permissions, limits, notifiers and record/replay stay effective.
+- Handlers MUST NOT perform I/O except through `ctx.exchange(...)`. This is a contract rule, so that permissions, limits, notifiers and record/replay stay effective. To support a new protocol, write an adapter (§13.1), not a function that does its own I/O.
 
 `FunctionContext` provides:
 
 | Member | Purpose |
 |---|---|
 | `ctx.body` | `Body` of the `do:` block (block functions only; `None` otherwise) |
-| `ctx.http` | HTTP port (permission checks, limits, notifiers, sessions applied) |
-| `ctx.html` | HTML parser port |
+| `ctx.exchange(adapter, request, **options)` | Perform an exchange through the shared pipeline (§13.3). Returns the adapter's response. |
+| `ctx.adapter(name)` | The process's view of an adapter: `.spec`, `.session`, `.exchange(request)` |
+| `ctx.extractor(name)` | An extractor: `.parse`, `.select`, `.read`, and `.extract(source, fields, root=None)` using the shared field engine (§13.9) |
 | `ctx.evaluate(expr, bindings)` | Evaluate a lazy expression argument |
 | `ctx.emit_event(name, **data)` | Emit a declared custom event (interceptable) |
 | `ctx.log(level, msg)` | Log event |
@@ -749,71 +756,47 @@ operations:
 - Registration:
   - `Crowley(functions=[...])`
   - `crowley.register(fn)`
-  - `Crowley(plugins=[...])`, where a plugin implements `namespace: str` and `register(registry)`.
+  - `Crowley(plugins=[...])`, where a plugin implements `register(registry)`. One plugin can bundle any mix of functions, adapters, extractors and expression helpers:
+
+    ```python
+    class MyCorpPlugin(Plugin):
+        def register(self, r: Registry) -> None:
+            r.add_adapter(SoapAdapter())          # also registers its soap.* functions
+            r.add_extractor(PdfExtractor())       # also generates pdf.extract / select / ...
+            r.add_function(decode_token)          # mycorp.decode_token
+            r.add_helper("slug", slugify)
+    ```
   - Entry points (group `crowley.plugins`) load **only** with `load_entry_points=True`.
 - A plugin owns its namespace. Registering into a reserved or already-taken namespace causes `E901` at startup.
-- `requires: ["mycorp.decode_token@^1", "mycorp.*@^2"]`. Stdlib functions don't need to be declared. A missing function or an incompatible version causes `E302`.
+- `requires` lists everything the template needs beyond the built-ins:
+  - functions: `"mycorp.decode_token@^1"`, `"mycorp.*@^2"`,
+  - adapters: `"adapter:ws@^1"`,
+  - extractors: `"extractor:pdf@^1"`.
+  
+  Built-in functions, adapters and extractors don't need to be declared. A missing entry or an incompatible version causes `E302`.
 - A function used in a template but not in the stdlib and not listed in `requires` causes `E301`.
 
 ---
 
-## 12. Standard library v1
+## 12. Built-in functions v1
 
-Schemas are summarized here. The source of truth is each function's spec, printed by `crowley functions show <name>`.
+Schemas are summarized here. The source of truth is each function's spec, printed by `crowley functions show <name>
+crowley adapters list | show <name>                          # registered adapters, schemas, defaults_schema
+crowley extractors list | show <name>                        # registered extractors, media types, languages`.
 
-### 12.1 `http.*`
+Functions come from three places, and all of them are registered the same way (§11.6):
 
-| Function | Kind | Description |
-|---|---|---|
-| `http.request` | plain | Full request (§13). |
-| `http.get`, `http.post`, `http.put`, `http.patch`, `http.delete`, `http.head` | plain | `http.request` with `method` fixed. |
-| `http.session` | block | Runs `do:` with an isolated cookie jar and connection pool. Args: `headers`, `cookies` (seed values). Result: the body's value. |
-
-### 12.2 `html.*`
-
-| Function | Description |
+| Source | Namespaces |
 |---|---|
-| `html.parse` | `{html}` → `handle<html.node>`. Optional; the other functions also accept raw HTML strings. |
+| **Stdlib** (this section) | `paginate.*`, `transform.*`, `control.*`, `extract.*` |
+| **Adapters** (§13.1–§13.7) | One namespace per adapter. The built-in `http` adapter provides `http.*` (§13.7). |
+| **Extractors** (§13.8–§13.11) | One namespace per extractor. The built-ins provide `html.*`, `xml.*`, `json.*` and `text.*` (§13.11). |
 
-In every `html.*` function, `html` is `x-crowley-from-prev`. If it is omitted, it is taken from `prev`:
-- an HTTP response value → its `body`,
-- a string or `html.node` handle → used as-is,
-- anything else → `E403`.
-| `html.select` | `{html, selector, attr='text'}` → value of the first match, or `null` |
-| `html.select_all` | `{html, selector, attr='text'}` → list of values |
-| `html.extract` | `{html, root?, fields}` → object (no `root`) or list of objects (one per `root` match) |
-
-**Field spec** (used by `html.extract`, and nestable):
-
-```yaml
-fields:
-  title:  { selector: "h1", attr: text }                     # CSS
-  price:  { xpath: "//span[@itemprop='price']/@content" }    # XPath alternative
-  links:  { selector: "a", attr: href, all: true }           # list
-  tags:   { selector: [".tag", ".label"], all: true }        # fallback list: first selector that matches wins
-  sku:    { selector: ".sku", required: true }               # no match → E502
-  stock:  { selector: ".stock", default: "unknown" }
-  author:                                                    # nested object
-    selector: ".byline"
-    fields:
-      name: { selector: ".name" }
-      url:  { selector: "a", attr: href }
-  variants:                                                  # nested list of objects
-    selector: ".variant"
-    all: true
-    fields:
-      color: { attr: data-color }
-```
-
-- `attr`: `text` (normalized whitespace), `raw_text`, `html` (outer), `inner_html`, or any attribute name.
-- A field with no `selector`/`xpath` reads from the current node itself.
-- When a fallback selector (not the first) matches, a `selector.fallback` event is emitted.
-
-### 12.3 `paginate.*` (block functions)
+### 12.1 `paginate.*` (block functions)
 
 All four have these in common:
 - they bind `page` in the body,
-- the result is a list of the body's per-page `return` values,
+- the result is a list of the body's per-page values (§8.1),
 - `break` in the body stops pagination,
 - `max_pages` defaults to 100 and is also capped by `limits.max_loop_iterations`,
 - they emit `page.before` and `page.after` events.
@@ -827,7 +810,7 @@ All four have these in common:
 
 `flatten: true` (all four) concatenates list results instead of nesting them.
 
-### 12.4 `transform.*`
+### 12.2 `transform.*`
 
 Use these when a transformation is too large for one expression or must be named in traces.
 
@@ -842,7 +825,7 @@ Use these when a transformation is too large for one expression or must be named
 
 In every `transform.*` function, `items` is `x-crowley-from-prev`. If it is omitted, the previous step's output is used.
 
-### 12.5 `control.*`
+### 12.3 `control.*`
 
 | Function | Kind | Description |
 |---|---|---|
@@ -850,38 +833,157 @@ In every `transform.*` function, `items` is `x-crowley-from-prev`. If it is omit
 | `control.sleep` | plain | `{duration}` |
 | `control.parallel` | block | `{branches: N}` runs the body N times concurrently with `branch.index`. Result: list. |
 
+### 12.4 `extract.*`
+
+| Function | Description |
+|---|---|
+| `extract.auto` | `{source, root?, fields}`. Picks the extractor from the source's media type (§13.10), then behaves like `<extractor>.extract`. `using: <name>` forces a specific extractor. |
+
 ---
 
-## 13. HTTP
+## 13. Adapters and extractors
 
-### 13.1 Request arguments (`http.request`)
+Crowley is built around two kinds of plugin:
+
+- **Adapters** talk to the outside world. Each call is an **exchange**: send a request to a **target** (a URI) and get a result back. HTTP is the built-in adapter. A browser, WebSocket, GraphQL, gRPC or a custom protocol are just more adapters.
+- **Extractors** turn content into structured data. HTML, XML, JSON and plain text are built in. CSV, PDF or a custom format are just more extractors.
+
+The core (domain and application layers) knows neither HTTP nor HTML. Built-in adapters and extractors register through exactly the same API as user-written ones, and they get no special privileges.
+
+### 13.1 Adapter contract
+
+```python
+from crowley import BaseAdapter, AdapterContext, AdapterSession, Exchange, ExchangeResult
+
+class BaseAdapter(ABC):
+    name: ClassVar[str]                      # namespace, e.g. "http", "ws", "mycorp_soap"
+    version: ClassVar[str]                   # SemVer of the adapter contract
+    schemes: ClassVar[tuple[str, ...]]       # target URI schemes handled, e.g. ("http", "https")
+    target_kind: ClassVar[Literal["network", "local", "none"]]   # selects the permission checks (§13.3)
+    config_schema: ClassVar[dict]            # integrator-side config (proxies, pool size, ...)
+    defaults_schema: ClassVar[dict]          # what `defaults.<name>` may contain in templates
+    request_schema: ClassVar[dict]           # shape of Exchange.request
+    response_schema: ClassVar[dict]          # shape of ExchangeResult.response
+
+    async def open(self, ctx: AdapterContext) -> AdapterSession: ...          # per process (cookies, pools)
+    async def send(self, session: AdapterSession, exchange: Exchange) -> ExchangeResult: ...
+    async def close(self, session: AdapterSession) -> None: ...
+    def functions(self) -> list[FunctionSpec]: ...                            # e.g. http.get, ws.send
+    def serialize(self, exchange: Exchange, result: ExchangeResult) -> dict: ...   # record/replay; default provided
+    def deserialize(self, data: dict) -> tuple[Exchange, ExchangeResult]: ...
+```
+
+- **`Exchange`** = `{adapter, target (URI), request (adapter-specific object), options}`.
+- **`ExchangeResult`** = `{response (adapter-specific object), meta (elapsed_ms, bytes_in, ...)}`.
+- **Adapters only move data.** Notifiers, permissions, limits, rate limiting, retries, size caps, redaction and record/replay all live in the shared exchange pipeline (§13.3). A user-written adapter gets all of those guarantees without implementing them.
+- **Functions never call `send` directly.** They use `ctx.exchange(adapter, request)` (§11.1).
+
+### 13.2 Registration and `requires`
+
+```python
+cw = Crowley(adapters=[WsAdapter(ping_interval=20)])        # at construction
+cw.register_adapter(MyGraphQLAdapter())                     # later, global
+cw.register_adapter(CurlCffiHttpAdapter(), replace="http")  # swap a built-in, keep the template API
+process = cw.init(tpl, "op", adapters={"http": FakeHttp()}) # per-process override (tests, special routing)
+```
+
+- Adapter names follow the function-namespace rules (§1). Two adapters with the same name cause `E906`, unless `replace=` is used.
+- `replace="<name>"` requires a compatible contract: same major `version`, and `request_schema`/`response_schema` accepting the same shapes. Otherwise `E906`. Templates keep working unchanged.
+- A per-process override follows the same compatibility rule and only affects that process.
+- Templates declare non-built-in adapters in `requires: ["adapter:ws@^1"]`. A missing adapter or incompatible version causes `E302`. Using a non-built-in adapter's functions without declaring it causes `E301`.
+- An adapter's `functions()` are registered in its own namespace when the adapter is registered.
+
+### 13.3 Exchange pipeline
+
+Every exchange, for every adapter, runs through the same pipeline in `AdapterService`:
+
+```
+merge: adapter config < defaults.<adapter> < function args → Exchange
+  → exchange.before        (notifiers may change the request, skip/replace it, abort)
+  → permission guard       (target_kind = network: host allow-list, SSRF guard; §4)
+  → limits                 (max_requests counts every exchange; per-host rate limit)
+  → replay?                (in tests: answer from the cassette; no match → E605)
+  → adapter.send()         (redirect-like hops reported back are permission-checked again)
+  → size cap               (max_response_bytes → E606)
+  → recorder?              (when recording: serialize into the cassette)
+  → exchange.after         (notifiers may change the result, replace it, retry)
+  → retry policy           (emits exchange.retry)
+  → result
+  error at any point → exchange.error (retry / replace / abort) → E6xx
+```
+
+- `target_kind: local` adapters (e.g. files) are checked against `permissions.paths` (reserved for a later version). In v1, only `network` and `none` are allowed.
+- Secrets are redacted in every serialized exchange (events, traces, cassettes).
+
+### 13.4 Defaults and precedence
+
+`defaults.<adapter>` is validated against that adapter's `defaults_schema` (unknown adapter: `E203`). Values are merged in this order, lowest priority first:
+
+1. adapter config (set by the integrator when constructing the adapter)
+2. template `defaults.<adapter>`
+3. function arguments (`with:`)
+4. `exchange.before` notifiers
+
+Objects are deep-merged. Scalars are replaced. Each adapter documents any special merge rules (for example, case-insensitive headers in `http`).
+
+### 13.5 Sessions
+
+- `adapter.open()` is called lazily, on a process's first exchange with that adapter.
+- The session lives until the process ends. Then `close()` is called, even on failure or cancellation.
+- Sessions are never shared between processes.
+- Child templates get their own sessions.
+- An adapter MAY offer a block function for nested isolated sessions (e.g. `http.session`).
+
+### 13.6 Record and replay (cassettes)
+
+- **Cassettes** are adapter-agnostic. A cassette is a JSON file holding a list of exchanges, each serialized by its adapter (`serialize`/`deserialize`). This makes record/replay work for every adapter, including user adapters.
+- **Matching** is per adapter. The default is `adapter + target + request` fingerprint. Templates can narrow it with `match:` (§19).
+- **Recording** scrubs secrets and adapter-declared sensitive fields (`Authorization`, `Cookie` for http).
+- **HAR import:** the `http` adapter can import HAR 1.2 files, and `crowley record --har` exports one, for interop with browser tools.
+
+### 13.7 Built-in adapter: `http`
+
+`HttpAdapter` uses httpx. Its `schemes` are `http` and `https`, and its `target_kind` is `network`.
+
+**Config** (integrator side): `HttpAdapter(user_agent=..., proxy=..., timeout=..., http2=True, allow_private_networks=False, max_connections=100)`.
+
+**Functions:**
+
+| Function | Kind | Description |
+|---|---|---|
+| `http.request` | plain | Full request (arguments below) |
+| `http.get`, `http.post`, `http.put`, `http.patch`, `http.delete`, `http.head` | plain | `http.request` with `method` fixed |
+| `http.session` | block | Runs `do:` with an isolated cookie jar and connection pool. Args: `headers`, `cookies` (seed values). Result: the body's value. |
+
+**Request arguments (`http.request`):**
 
 | Arg | Type | Default | Notes |
 |---|---|---|---|
 | `method` | enum | `GET` | `GET HEAD POST PUT PATCH DELETE OPTIONS` |
-| `url` | string (uri) | — | Required. Must be absolute. |
+| `url` | string (uri) | — | Required. Must be absolute. This is the exchange target. |
 | `query` | object | `{}` | Values: scalar or list (repeated keys). `null` values are omitted. Merged with any query already in `url`. |
 | `headers` | object | `{}` | Header names are case-insensitive. A `null` value removes a default header. |
 | `cookies` | object | `{}` | Added to the session jar for this request. |
 | `body` | object | — | Exactly one of `json`, `form` (object), `raw` (string), `bytes` (base64 string), `multipart` (list of `{name, value \| content_base64, filename?, content_type?}`). Sets `Content-Type` unless it is given explicitly. |
 | `auth` | object | — | `{bearer: str}` or `{basic: {username, password}}` |
 | `timeout` | duration | `30s` | |
-| `follow_redirects` | bool | `true` | Max 10 hops. Each hop is permission-checked. |
+| `follow_redirects` | bool | `true` | Each hop is permission-checked. |
 | `max_redirects` | int | `10` | |
 | `proxy` | string | — | Usually set by the integrator or a notifier, not the template. |
 | `verify_tls` | bool | `true` | |
 | `expect_status` | int[] or `"2xx"`-style strings | `["2xx"]` | Other statuses cause `E601`. |
-| `response_type` | enum | `auto` | `auto json text html bytes`. `auto` decides from `Content-Type`. |
+| `response_type` | enum | `auto` | `auto json text bytes`. `auto` decides from `Content-Type`. |
 | `encoding` | string | auto | Overrides text decoding. |
 | `retry` | object | none | `{times, backoff: fixed\|exponential, delay='1s', max_delay='30s', on_status=[429,502,503,504], on_network_error=true, respect_retry_after=true}` |
 
-### 13.2 Response value
+**Response value:**
 
 ```yaml
 status: 200
 ok: true
 url: https://final.url/after/redirects
 headers: { content-type: "text/html; charset=utf-8", ... }   # lower-cased; multi-value joined with ", "
+media_type: text/html                                        # used by extract.auto (§13.10)
 cookies: { session: "..." }
 body: <json value | string | bytes>      # per response_type
 elapsed_ms: 132
@@ -889,33 +991,108 @@ redirects: [ "https://..." ]
 request: { method, url, headers }        # as actually sent (secrets redacted in traces)
 ```
 
-### 13.3 Defaults and precedence
+**Defaults:** `defaults.http` accepts `headers`, `query`, `cookies`, `timeout`, `follow_redirects`, `max_redirects`, `verify_tls`, `retry`, `expect_status` and `response_type`. Headers are merged case-insensitively. The default `User-Agent` is `crowley/<version> (+https://github.com/mohamed-naser-awd/crowley)` unless it is overridden.
 
-`defaults.http` accepts these keys: `headers`, `query`, `cookies`, `timeout`, `follow_redirects`, `max_redirects`, `verify_tls`, `retry`, `expect_status`, `response_type`.
+**Sessions:** each process has one implicit http session (cookie jar and connection pool). `http.session` nests an isolated one. `Retry-After` is honoured when `respect_retry_after` is set.
 
-Values are merged in this order, lowest priority first:
+### 13.8 Extractor contract
 
-1. SDK `HttpConfig` (user agent, proxy, timeouts)
-2. template `defaults.http`
-3. step `with:`
-4. `request.before` notifiers
+```python
+from crowley import BaseExtractor, Node, Value
 
-Objects (`headers`, `query`, `cookies`) are deep-merged (headers case-insensitively). Scalars are replaced. The default `User-Agent` is `crowley/<version> (+https://github.com/<org>/crowley)` unless it is overridden.
+class BaseExtractor(ABC):
+    name: ClassVar[str]                          # namespace, e.g. "html", "json", "pdf"
+    version: ClassVar[str]
+    media_types: ClassVar[tuple[str, ...]]       # e.g. ("text/html", "application/xhtml+xml"), for extract.auto
+    query_languages: ClassVar[tuple[str, ...]]   # e.g. ("css", "xpath") | ("jsonpath",) | ("regex",)
+    default_language: ClassVar[str]              # what a bare `selector:` means
+    attributes: ClassVar[tuple[str, ...]]        # readable attrs, e.g. text, html, href…; "*" = any attribute name
+    default_attribute: ClassVar[str]             # used when a field has no `attr`
 
-### 13.4 Sessions
+    def parse(self, raw: str | bytes, *, base_url: str | None, media_type: str | None) -> Node: ...
+    def select(self, node: Node, query: str, language: str) -> list[Node]: ...
+    def read(self, node: Node, attr: str) -> Value: ...
+```
 
-- Each run has an implicit session (cookie jar and connection pool) shared by all `http.*` calls.
-- `http.session` creates a nested, isolated session for its body.
-- A child template gets its own session.
+- **Three methods only.** An extractor implements `parse`, `select` and `read`. Everything else is shared: the field engine (§13.9), the generated functions, fallback handling, validation and events.
+- **`Node`** is an opaque handle (`handle<html.node>`, `handle<json.node>`, ...) (§9).
+- **Purity:** extractors MUST be pure and do no I/O. Network access belongs in adapters.
+- **Registration** mirrors adapters:
+  - `Crowley(extractors=[...])`,
+  - `cw.register_extractor(x)` or `cw.register_extractor(x, replace="html")` (compatible `query_languages` and `attributes` required, else `E906`),
+  - per-process `cw.init(..., extractors={...})`,
+  - templates declare non-built-in extractors with `requires: ["extractor:pdf@^1"]`.
 
-### 13.5 Rate limiting and politeness
+### 13.9 Field extraction engine
 
-- A per-host token bucket (`limits.rate.per_host`) is applied in the transport layer.
-- `Retry-After` is honoured when `respect_retry_after` is set.
+Every extractor gets these functions, generated from the contract:
 
-### 13.6 Expandability
+| Function | Args → result |
+|---|---|
+| `<name>.parse` | `{source}` → `handle<<name>.node>` |
+| `<name>.select` | `{source, selector, attr?}` → value of the first match, or `null` |
+| `<name>.select_all` | `{source, selector, attr?}` → list of values |
+| `<name>.extract` | `{source, root?, fields}` → object (no `root`) or list of objects (one per `root` match) |
 
-Every fetch goes through the `HttpTransport` port and emits `request.*` and `response.*` events. A future `browser.*` plugin will use a separate `BrowserPort`, but MUST emit the same `request.before` and `response.after` events and obey the same permissions and limits.
+**`source`** is `x-crowley-from-prev`. If it is omitted, it is taken from `prev`:
+- an adapter response with a `body` → that body; its `url` becomes `base_url` and its `media_type` is passed to `parse`,
+- a string, bytes or one of this extractor's node handles → used as-is,
+- anything else → `E403`.
+
+**Field spec** (nestable). `selector` uses the extractor's `default_language`. A field can name a language explicitly instead, with a key equal to that language name:
+
+```yaml
+fields:
+  title:  { selector: "h1" }                                 # html: css
+  price:  { xpath: "//span[@itemprop='price']/@content" }    # explicit language
+  links:  { selector: "a", attr: href, all: true }           # list
+  tags:   { selector: [".tag", ".label"], all: true }        # fallback list: first query that matches wins
+  sku:    { selector: ".sku", required: true }               # no match → E502
+  stock:  { selector: ".stock", default: "unknown" }
+  author:                                                    # nested object
+    selector: ".byline"
+    fields:
+      name: { selector: ".name" }
+      url:  { selector: "a", attr: href }
+  variants:                                                  # nested list of objects
+    selector: ".variant"
+    all: true
+    fields:
+      color: { attr: data-color }
+```
+
+```yaml
+# same engine, JSON extractor
+- use: json.extract
+  with:
+    root: "$.data.items[*]"
+    fields:
+      id:    { selector: "$.id" }
+      price: { selector: "$.pricing.amount", required: true }
+```
+
+- A field with no query reads from the current node itself.
+- **Static checks:**
+  - a language key the extractor doesn't support → `E326`,
+  - an `attr` outside `attributes` (unless the extractor allows `*`) → `E326`,
+  - a literal query that doesn't compile → `E327`.
+- When a fallback query (not the first) matches, a `selector.fallback` event is emitted with `extractor`, `field`, `index` and `query`.
+
+### 13.10 Media-type routing (`extract.auto`)
+
+`extract.auto` picks the extractor in this order:
+1. an explicit `using:` argument,
+2. the source's `media_type` matched against registered extractors' `media_types` (exact, then `+suffix` such as `+json`/`+xml`, then wildcard),
+3. otherwise `E403` with a hint listing the candidate extractors.
+
+### 13.11 Built-in extractors
+
+| Extractor | Library | Media types | Query languages (default first) | Attributes |
+|---|---|---|---|---|
+| `html` | lxml + cssselect | `text/html`, `application/xhtml+xml` | `css`, `xpath` | `text` (normalized whitespace), `raw_text`, `html` (outer), `inner_html`, any attribute name |
+| `xml` | lxml | `application/xml`, `text/xml`, `*+xml` | `xpath`, `css` | `text`, `raw_text`, `xml`, any attribute name |
+| `json` | python-jsonpath | `application/json`, `*+json` | `jsonpath` | `value` (default), `keys`, `length` |
+| `text` | regex | `text/plain`, `*` (fallback) | `regex` (match = node; named groups readable as attributes) | `text` (default), `group:<n\|name>` |
 
 ---
 
@@ -982,6 +1159,8 @@ Stages 1–3 run once per template. The compiled template is immutable and reusa
 | E323 | `emit` inside a template function |
 | E324 | Unknown operation in `template:<ref>#<op>`, missing `#<op>` for a multi-operation child, or a `template:` reference to the template itself |
 | W002 | (warning) Step result is never used and the step has no `id` reference (pure functions only) |
+| E326 | Field spec uses a query language or `attr` the extractor doesn't support |
+| E327 | Literal extractor query doesn't compile (bad CSS / XPath / JSONPath / regex) |
 | W003 | (warning) Template function not used by any operation |
 
 ---
@@ -1011,10 +1190,10 @@ class CrowleyError(Exception):
 | E3xx | `TemplateSemanticError` | — (load time) |
 | E4xx | `ValidationError` (`E401` inputs, `E402` secrets, `E403` function args, `E404` emitted item, `E405` output, `E406` assert, `E407` function result) | **Never** |
 | E5xx | `ExecutionError` (`E501` expression, `E502` function raised, `E503` `fail` step, `E504` step timeout) | Yes |
-| E6xx | `HttpError` (`E601` unexpected status, `E602` network, `E603` timeout, `E604` host not permitted, `E605` no fixture match in replay, `E606` response too large) | Yes, **except** E604 and E605 |
+| E6xx | `ExchangeError`, raised by the exchange pipeline for any adapter: `E601` unexpected status / adapter-reported failure response, `E602` connection / transport error, `E603` timeout, `E604` target not permitted, `E605` no cassette match in replay, `E606` response too large, `E607` adapter not available | Yes, **except** E604, E605 and E607 |
 | E7xx | `LimitError` (`E701` limit exceeded, `E702` `while` hit `max_iterations`, `E703` expression budget or regex timeout, `E705` pagination loop) | **Never** |
 | E8xx | `ControlError` (`E801` aborted by notifier, `E802` notifier raised, `E803` cancelled by caller) | **Never** |
-| E9xx | `ConfigurationError` (`E901` registry conflict, `E902` bad SDK config, `E903` invalid function spec or handler signature, `E904` operation not specified or unknown, `E905` process already started) | — |
+| E9xx | `ConfigurationError` (`E901` registry conflict, `E902` bad SDK config, `E903` invalid function spec or handler signature, `E904` operation not specified or unknown, `E905` process already started, `E906` adapter or extractor name conflict / incompatible `replace`) | — |
 
 ### 16.3 `on_error`
 
@@ -1074,11 +1253,11 @@ With these events, a notifier can change any step at runtime:
 | `loop.end` | `result` | abort |
 | `page.before` | `page` | skip, abort |
 | `page.after` | `value`, `stop` (bool) | abort |
-| `request.before` | `request` (method, url, query, headers, cookies, body, timeout, proxy, verify_tls) — permission re-checked | skip/replace (synthetic `response`), abort |
-| `response.after` | `response` (status, headers, body) | replace, retry, abort |
-| `request.error` | — | retry, replace (synthetic response), abort |
-| `request.retry` | `delay` | abort |
-| `selector.fallback` | — | abort |
+| `exchange.before` | `exchange.target`, `exchange.request` (adapter-specific; for `http`: method, url, query, headers, cookies, body, timeout, proxy, verify_tls). Permission re-checked afterwards. | skip/replace (synthetic response), abort |
+| `exchange.after` | `result.response` (adapter-specific; for `http`: status, headers, body) | replace, retry, abort |
+| `exchange.error` | — | retry, replace (synthetic response), abort |
+| `exchange.retry` | `delay` | abort |
+| `selector.fallback` | — (payload: `extractor`, `field`, `index`, `query`) | abort |
 | `variable.set` | `value` | abort |
 | `item.emit` | `item` (validated after notifiers) | skip (drop item), abort |
 | `output.before_validate` | `output` | abort |
@@ -1092,6 +1271,7 @@ Plugins MAY emit custom events through `ctx.emit_event`, if they are declared in
 
 ```
 name, timestamp, run (id, template_id, template_version, operation), step (id, kind, path, function?),
+adapter (exchange.* events), extractor (extraction events),
 iteration (index or None), page (or None), depth, scope (read-only view of inputs/vars/steps)
 ```
 
@@ -1115,18 +1295,18 @@ One `Crowley` instance can run many operations at the same time, often of differ
 cw = Crowley()
 
 # ── global: applies to every process ───────────────────────────────────────────
-@cw.on("request.before", function="http.*")
+@cw.on("exchange.before", adapter="http")
 def user_agent(event):
-    event.request.headers["User-Agent"] = "acme-bot/1.0"
+    event.exchange.request["headers"]["User-Agent"] = "acme-bot/1.0"
 
 # ── a reusable registry ────────────────────────────────────────────────────────
 rotating_proxies = NotifierRegistry("rotating-proxies")
 
-@rotating_proxies.on("request.before", function="http.*", priority=10)
+@rotating_proxies.on("exchange.before", adapter="http", priority=10)
 def add_proxy(event):
-    event.request.proxy = pool.next()
+    event.exchange.request["proxy"] = pool.next()
 
-rotating_proxies.add_notifier("response.after", backoff_on_429)
+rotating_proxies.add_notifier("exchange.after", backoff_on_429, adapter="http")
 
 # ── two processes running at the same time, each with its own notifiers ────────
 people = cw.init(tpl, "get_page_people", inputs={"company": "acme"})
@@ -1147,13 +1327,15 @@ people_result, info_result = await asyncio.gather(people.run(), info.run())
 
 ```python
 add_notifier(
-    event: str,                     # event name or glob: "step.after", "request.*", "*"
+    event: str,                     # event name or glob: "step.after", "exchange.*", "*"
     fn: Callable[[Event], Action | None | Awaitable[Action | None]],
     *,
     step: str | None = None,        # step id glob
     function: str | None = None,    # function name glob ("http.*", "local.fetch_json")
     operation: str | None = None,   # operation name glob
     template: str | None = None,    # template id glob
+    adapter: str | None = None,     # adapter name glob (exchange.* events)
+    extractor: str | None = None,   # extractor name glob (selector.fallback, extractor function events)
     priority: int = 0,
     observe: bool = False,          # True → read-only observer (frozen copy, runs after interceptors)
     revalidate: bool = True,
@@ -1247,7 +1429,7 @@ operations:
       - name: two pages
         inputs: { company: acme, max_pages: 2 }
         secrets: { API_TOKEN: test-token }
-        fixtures: fixtures/people-acme.har   # path relative to the template file
+        fixtures: fixtures/people-acme.cassette.json   # path relative to the template file
         match: [method, url]                 # default; may add "body"
         expect:
           min_items: 1
@@ -1258,23 +1440,25 @@ operations:
             - ${{ len(unique(output[*].id)) == len(output) }}
       - name: unknown company fails cleanly
         inputs: { company: nope }
-        fixtures: fixtures/people-404.har
+        fixtures: fixtures/people-404.cassette.json
         expect:
           error: E601
 ```
 
 - `crowley test` runs every test of every operation. `--operation <op>` narrows it.
 
-- Tests run with the **replay transport**. A request with no matching fixture fails with `E605`. The network is never used.
+- Tests run in **replay** mode: every adapter's exchanges are answered from the cassette (§13.6). An exchange with no match fails with `E605`. The network is never used.
+- For `http`, `fixtures:` may also point to a `.har` file, which is imported on the fly.
 - `now()` and `uuid()` are frozen during tests (`2026-01-01T00:00:00Z`, and a seeded generator).
-- `crowley record <template> <operation> --input ... --out fixtures/x.har` runs live through the recording transport. Secrets and `Authorization`/`Cookie` headers are scrubbed in the saved HAR.
+- `crowley record <template> <operation> --input ... --out fixtures/x.cassette.json` runs live and records every exchange. Secrets and adapter-declared sensitive fields (for `http`: `Authorization`, `Cookie`) are scrubbed. `--har` additionally exports the http exchanges as HAR.
 
 ---
 
 ## 20. Python SDK API
 
 ```python
-from crowley import Crowley, Limits, HttpConfig, DirectorySource, EnvSecrets
+from crowley import Crowley, Limits, DirectorySource, EnvSecrets
+from crowley.adapters.http import HttpAdapter
 
 cw = Crowley(
     sources=[DirectorySource("./templates")],     # resolves template:<ref> and string refs
@@ -1283,9 +1467,13 @@ cw = Crowley(
     helpers={"slug": my_pure_helper},
     secrets=EnvSecrets(prefix="CROWLEY_"),        # or a dict
     limits=Limits(max_requests=1_000),
-    http=HttpConfig(user_agent="acme-bot/1.0", proxy=None, allow_private_networks=False),
+    adapters=[HttpAdapter(user_agent="acme-bot/1.0", allow_private_networks=False), WsAdapter()],
+    extractors=[PdfExtractor()],                  # built-ins (html, xml, json, text) are always present
     load_entry_points=False,
 )
+
+cw.register_adapter(CurlCffiHttpAdapter(), replace="http")   # swap a built-in (§13.2)
+cw.register_extractor(SelectolaxHtml(), replace="html")
 
 tpl = cw.load("company-directory.yml")  # → Template (compiled, stages 1–3); raises on error
 report = cw.validate("company-directory.yml")   # → ValidationReport(errors, warnings); never raises
@@ -1295,7 +1483,7 @@ tpl.operations["get_page_people"].inputs_schema / .output_schema / .description
 plan = cw.explain(tpl, "get_page_people")       # → human-readable execution plan
 
 # ── global notifiers (apply to every process) ──
-cw.add_notifier("request.before", add_proxy, function="http.*")
+cw.add_notifier("exchange.before", add_proxy, adapter="http")
 cw.add_notifier_registry(audit_registry)
 
 # ── processes: one operation run each, with their own notifiers (§17.3) ──
@@ -1333,7 +1521,7 @@ crowley validate <template>... [--format text|json]          # exit 1 on errors
 crowley explain <template> [<operation>]
 crowley operations <template>                                # list operations with inputs/outputs
 crowley test <template|dir>... [--operation op] [--update]
-crowley record <template> <operation> --out fixtures/x.har [--input k=v]...
+crowley record <template> <operation> --out fixtures/x.cassette.json [--har] [--input k=v]...
 crowley functions list [--namespace ns]
 crowley functions show <name>
 crowley schema [--out crowley.schema.json]                   # template meta-schema for editors

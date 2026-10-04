@@ -2,38 +2,52 @@
 
 | | |
 |---|---|
-| **Status** | Draft v0.1 |
+| **Status** | Draft v0.2 |
 | **Date** | 2026-10-04 |
 | **Related** | [PRD.md](PRD.md), [SPEC.md](SPEC.md) |
 
-Crowley uses an **onion architecture**. Dependencies point inward only. The core (domain and application) knows nothing about YAML libraries, httpx, lxml or the CLI. It defines **ports** (Python `Protocol`s), and outer layers provide **adapters** for them. This is what lets us add a browser transport, a hub template source, or a different HTML engine later without touching the core.
+Crowley uses an **onion architecture**. Dependencies point inward only. The core (domain and application) knows nothing about HTTP, HTML, YAML libraries or the CLI.
+
+The outer ring is built from two kinds of extension point:
+
+- **Plugins.** These are user-facing and pluggable at runtime:
+  - **adapters** (I/O: HTTP now; a browser, WebSocket or anything custom later),
+  - **extractors** (turning content into data: HTML, XML, JSON, text; PDF, CSV or anything custom later),
+  - **functions** and expression **helpers**.
+  
+  Built-in plugins register through exactly the same API as user plugins.
+- **Ports and providers.** These are internal plumbing. The core defines `Protocol` **ports** (template source, YAML parser, schema validator, DNS resolver, secrets, trace sink, cassette store). Infrastructure **providers** implement them.
+
+> **Terminology:** "adapter" in this document always means an *I/O plugin* (`BaseAdapter`, SPEC §13.1). An implementation of an internal port is called a *provider*.
 
 ---
 
 ## 1. Layers
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│ 4. Interface  (crowley.interface)                                    │
-│    SDK facade `Crowley`, CLI, pytest helpers — the composition root  │
-│ ┌──────────────────────────────────────────────────────────────────┐ │
-│ │ 3. Adapters                                                      │ │
-│ │    crowley.infrastructure — implements ports (httpx, ruamel,     │ │
-│ │                             jsonschema, lxml, files, HAR, env)   │ │
-│ │    crowley.stdlib         — built-in functions (http, html,      │ │
-│ │                             paginate, transform, control)        │ │
-│ │ ┌──────────────────────────────────────────────────────────────┐ │ │
-│ │ │ 2. Application  (crowley.application)                        │ │ │
-│ │ │    use cases, compiler, static validator, runtime/executor,  │ │ │
-│ │ │    function registry, event bus, ports                       │ │ │
-│ │ │ ┌──────────────────────────────────────────────────────────┐ │ │ │
-│ │ │ │ 1. Domain  (crowley.domain)                              │ │ │ │
-│ │ │ │    template model, step AST, values, expression language,│ │ │ │
-│ │ │ │    function contract, events, errors, HTTP value objects │ │ │ │
-│ │ │ └──────────────────────────────────────────────────────────┘ │ │ │
-│ │ └──────────────────────────────────────────────────────────────┘ │ │
-│ └──────────────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ 4. Interface  (crowley.interface)                                             │
+│    SDK facade `Crowley`, CLI, pytest plugin — the composition root            │
+│ ┌───────────────────────────────────────────────────────────────────────────┐ │
+│ │ 3. Plugins & providers  (siblings, independent of each other)             │ │
+│ │    crowley.adapters        built-in adapters      (http: httpx)           │ │
+│ │    crowley.extractors      built-in extractors    (html, xml, json, text) │ │
+│ │    crowley.stdlib          built-in functions     (paginate, transform,   │ │
+│ │                                                    control, extract.auto)  │ │
+│ │    crowley.infrastructure  port providers         (ruamel, jsonschema,    │ │
+│ │                                                    sources, secrets, ...)  │ │
+│ │ ┌───────────────────────────────────────────────────────────────────────┐ │ │
+│ │ │ 2. Application  (crowley.application)                                 │ │ │
+│ │ │    use cases, compiler, runtime, Process, event bus, registries,      │ │ │
+│ │ │    BaseAdapter + AdapterService, BaseExtractor + field engine, ports  │ │ │
+│ │ │ ┌───────────────────────────────────────────────────────────────────┐ │ │ │
+│ │ │ │ 1. Domain  (crowley.domain)                                       │ │ │ │
+│ │ │ │    template model, step AST, values, expressions, function /      │ │ │ │
+│ │ │ │    adapter / extractor specs, Exchange, FieldSpec, events, errors │ │ │ │
+│ │ │ └───────────────────────────────────────────────────────────────────┘ │ │ │
+│ │ └───────────────────────────────────────────────────────────────────────┘ │ │
+│ └───────────────────────────────────────────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 1.1 Dependency rules (enforced by `import-linter` in CI)
@@ -41,24 +55,30 @@ Crowley uses an **onion architecture**. Dependencies point inward only. The core
 | Layer | May import | Must not import |
 |---|---|---|
 | `domain` | Python standard library only | anything else in `crowley`, any third-party package |
-| `application` | `domain`, Python standard library | `stdlib`, `infrastructure`, `interface`, third-party packages |
-| `stdlib` | `domain`, `application` (public function API and ports) | `infrastructure`, `interface`, third-party packages |
-| `infrastructure` | `domain`, `application` (ports), third-party packages | `stdlib`, `interface` |
+| `application` | `domain`, Python standard library | ring 3, `interface`, third-party packages |
+| `adapters` | `domain`, `application` (BaseAdapter, FunctionSpec, ...), third-party packages | other ring-3 packages, `interface` |
+| `extractors` | `domain`, `application` (BaseExtractor, ...), third-party packages | other ring-3 packages, `interface` |
+| `stdlib` | `domain`, `application` (public function API) | other ring-3 packages, `interface`, third-party packages |
+| `infrastructure` | `domain`, `application` (ports), third-party packages | other ring-3 packages, `interface` |
 | `interface` | everything | — |
 
-`stdlib` and `infrastructure` are siblings in the same ring and MUST NOT depend on each other. Built-in functions reach HTML parsing and HTTP **only** through ports on `FunctionContext`. This keeps built-ins identical to third-party plugins, and lets record/replay and notifiers work for every function.
+**Isolation rules:**
+- The four ring-3 packages are independent of each other.
+- Each adapter (`crowley.adapters.<name>`) and each extractor (`crowley.extractors.<name>`) is independent of its siblings, so any of them can later be split into a separate distribution.
+- Built-ins get no shortcuts. A built-in adapter or extractor can only use what a third-party one could.
 
 ```toml
 # pyproject.toml
 [tool.importlinter]
 root_package = "crowley"
+include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "Onion layers"
 type = "layers"
 layers = [
   "crowley.interface",
-  "crowley.stdlib | crowley.infrastructure",
+  "crowley.adapters | crowley.extractors | crowley.stdlib | crowley.infrastructure",
   "crowley.application",
   "crowley.domain",
 ]
@@ -67,7 +87,14 @@ layers = [
 name = "Core has no third-party deps"
 type = "forbidden"
 source_modules = ["crowley.domain", "crowley.application", "crowley.stdlib"]
-forbidden_modules = ["httpx", "ruamel", "jsonschema", "lxml", "cssselect", "regex", "click"]
+forbidden_modules = ["httpx", "ruamel", "jsonschema", "lxml", "cssselect", "regex", "jsonpath", "click"]
+
+[[tool.importlinter.contracts]]
+name = "Extractors are independent"
+type = "independence"
+modules = ["crowley.extractors.html", "crowley.extractors.xml",
+           "crowley.extractors.json", "crowley.extractors.text"]
+# "Adapters are independent" is added when a second built-in adapter lands.
 ```
 
 ---
@@ -79,9 +106,10 @@ crowley/
 ├── pyproject.toml
 ├── docs/                         PRD.md, SPEC.md, ARCHITECTURE.md
 ├── schema/                       crowley-1.schema.json  (generated from domain, published)
-├── examples/                     example templates + fixtures + snapshots
+├── examples/                     example templates + cassettes + snapshots
 ├── src/crowley/
-│   ├── __init__.py               public API re-exports (Crowley, function, Notifier, errors, ...)
+│   ├── __init__.py               public API re-exports (Crowley, function, BaseAdapter, BaseExtractor,
+│   │                             Plugin, NotifierRegistry, errors, ...)
 │   │
 │   ├── domain/                   ── LAYER 1 ──────────────────────────────────────────
 │   │   ├── template/             Template, Operation, TemplateFunction, Metadata, InputSpec,
@@ -94,62 +122,77 @@ crowley/
 │   │   │                         helper registry + built-in pure helpers, budgets
 │   │   ├── values/               value model (JSON types, Bytes, Handle), type checks, conversions
 │   │   ├── functions/            FunctionSpec, FunctionKind, Requirement (+ SemVer range), Outcome
+│   │   ├── adapters/             AdapterSpec, Exchange, ExchangeResult, Target (URI), TargetKind,
+│   │   │                         RetryPolicy, host-pattern matching
+│   │   ├── extractors/           ExtractorSpec, FieldSpec AST, Query, QueryLanguage, MediaType matching
 │   │   ├── events/               Event dataclasses per catalog entry, actions (Skip/Replace/Retry/Abort)
-│   │   ├── http/                 HttpRequest, HttpResponse, Body variants, RetryPolicy,
-│   │   │                         header merging, URL/host matching
 │   │   ├── errors/               CrowleyError hierarchy, codes, SourceLocation, redaction
 │   │   ├── services/             domain-service protocols: Clock, RandomSource, RegexEngine
 │   │   └── common/               Duration, ByteSize, SemVer, TemplatePath, identifiers
 │   │
 │   ├── application/              ── LAYER 2 ──────────────────────────────────────────
-│   │   ├── ports/                TemplateSource, TemplateParser, SchemaValidator, HttpTransport,
-│   │   │                         HostResolver, HtmlParser, SecretsProvider, TraceSink, RateLimiter
-│   │   ├── registry/             FunctionRegistry, HelperRegistry, Plugin protocol, requires resolution
+│   │   ├── ports/                TemplateSource, TemplateParser, SchemaValidator, HostResolver,
+│   │   │                         SecretsProvider, TraceSink, CassetteStore
+│   │   ├── registry/             Registry (functions, adapters, extractors, helpers), Plugin,
+│   │   │                         HandlerBinding, requires resolution, replace-compatibility checks
+│   │   ├── adapters/             BaseAdapter, AdapterContext, AdapterSession, AdapterService
+│   │   │                         (exchange pipeline), PermissionGuard, RateLimiter, Recorder/Replayer
+│   │   ├── extractors/           BaseExtractor, FieldExtractionEngine, generated extractor
+│   │   │                         functions (<name>.parse/select/select_all/extract), media-type router
 │   │   ├── compiler/             RawDocument → domain AST, meta-schema check, static validator (E3xx)
 │   │   ├── runtime/              Process, Executor, StepPipeline, step handlers, Scope/Frame (carries prev),
-│   │   │                         ControlSignal, FunctionInvoker, HandlerBinding, FunctionContext, Body, LimitsGuard,
-│   │   │                         PermissionGuard, ConcurrencyManager, OutputCollector, RunState
-│   │   ├── http/                 HttpService: defaults merge, events, permission + SSRF check,
-│   │   │                         rate limit, retry, sessions — sits in front of HttpTransport
+│   │   │                         ControlSignal, FunctionInvoker, FunctionContext, Body, LimitsGuard,
+│   │   │                         ConcurrencyManager, OutputCollector, RunState
 │   │   ├── events/               EventBus, Notifier, NotifierSet, NotifierRegistry, NotifierHandle,
 │   │   │                         filters, interception pipeline, revalidation
 │   │   ├── testing/              TemplateTestRunner (expectations, snapshots)
 │   │   └── use_cases/            LoadTemplate, ValidateTemplate, ExplainOperation, RunOperation,
 │   │                             StreamOperation, TestTemplate, RecordOperation
 │   │
-│   ├── stdlib/                   ── LAYER 3 (functions) ──────────────────────────────
-│   │   ├── __init__.py           StdlibPlugin (registers all namespaces)
-│   │   ├── http.py               http.request/get/post/.../session
-│   │   ├── html.py               html.parse/select/select_all/extract (field-spec engine)
+│   ├── adapters/                 ── LAYER 3: built-in adapters ───────────────────────
+│   │   └── http/                 HttpAdapter(BaseAdapter) on httpx; http.* functions; request/response
+│   │                             models; header merging; redirects; HAR import/export
+│   │
+│   ├── extractors/               ── LAYER 3: built-in extractors ─────────────────────
+│   │   ├── html/                 HtmlExtractor (lxml + cssselect): css, xpath
+│   │   ├── xml/                  XmlExtractor (lxml): xpath, css
+│   │   ├── json/                 JsonExtractor (python-jsonpath): jsonpath
+│   │   └── text/                 TextExtractor (regex): regex
+│   │
+│   ├── stdlib/                   ── LAYER 3: built-in functions ──────────────────────
+│   │   ├── __init__.py           StdlibPlugin
 │   │   ├── paginate.py           paginate.by_page/by_offset/by_cursor/by_next_link
 │   │   ├── transform.py          transform.map/filter/dedupe/sort/group_by/flatten
-│   │   └── control.py            control.retry/sleep/parallel
+│   │   ├── control.py            control.retry/sleep/parallel
+│   │   └── extract.py            extract.auto (media-type routing)
 │   │
-│   ├── infrastructure/           ── LAYER 3 (adapters) ───────────────────────────────
+│   ├── infrastructure/           ── LAYER 3: port providers ──────────────────────────
 │   │   ├── yaml/                 RuamelTemplateParser (positions, dup keys, no custom tags)
 │   │   ├── schema/               JsonSchemaValidator (jsonschema, Draft 2020-12, format checks)
-│   │   ├── http/                 HttpxTransport, RecordingTransport, ReplayTransport (HAR 1.2),
-│   │   │                         SystemHostResolver, TokenBucketRateLimiter
-│   │   ├── html/                 LxmlHtmlParser (CSS via cssselect, XPath)
-│   │   ├── regex/                RegexLibEngine (`regex` with timeouts)
+│   │   ├── regex/                RegexLibEngine (`regex` with timeouts) for expression helpers
+│   │   ├── network/              SystemHostResolver (getaddrinfo; IP pinning against DNS rebinding)
+│   │   ├── cassettes/            JsonCassetteStore (read/write cassette files)
 │   │   ├── sources/              DirectorySource, FileSource, InMemorySource   (later: HubSource)
 │   │   ├── secrets/              DictSecrets, EnvSecrets
 │   │   ├── trace/                JsonTraceSink, NullTraceSink
 │   │   └── system/               SystemClock, SystemRandom, FrozenClock, SeededRandom
 │   │
 │   └── interface/                ── LAYER 4 ──────────────────────────────────────────
-│       ├── sdk.py                Crowley facade + container (wires adapters into use cases)
-│       ├── config.py             Limits, HttpConfig, public config dataclasses
-│       ├── cli/                  click app: run, validate, explain, test, record, functions, schema, init
-│       └── pytest_plugin.py      fixtures: crowley, replay(har), run_template(...)
+│       ├── sdk.py                Crowley facade + container (wires providers, registers built-in plugins)
+│       ├── config.py             Limits and other public config dataclasses
+│       ├── cli/                  click app: run, validate, explain, test, record, functions,
+│       │                         adapters, extractors, schema, init
+│       └── pytest_plugin.py      fixtures: crowley, cassette(...), run_operation(...)
 │
 └── tests/
     ├── domain/                   pure unit tests (+ hypothesis for expression parser)
-    ├── application/              runtime tests with in-memory fake ports
-    ├── stdlib/                   function tests with fake HttpTransport/HtmlParser
-    ├── infrastructure/           adapter contract tests (respx for httpx, real lxml)
+    ├── application/              runtime, pipeline and field-engine tests with fake adapters/extractors
+    ├── adapters/                 adapter contract suite + http specifics (respx)
+    ├── extractors/               extractor contract suite + golden tests per extractor
+    ├── stdlib/                   function tests with fake adapters/extractors
+    ├── infrastructure/           provider tests (yaml positions, schema, sources, cassettes)
     ├── interface/                CLI tests (click runner), SDK facade tests
-    └── e2e/                      examples/ templates via ReplayTransport
+    └── e2e/                      examples/ templates replayed from cassettes
 ```
 
 ---
@@ -158,22 +201,28 @@ crowley/
 
 The domain layer is pure, synchronous, deterministic and has no I/O.
 
-- **Immutable models.** Everything uses `@dataclass(frozen=True, slots=True)`. A compiled `Template` is immutable and safe to share across concurrent runs.
+- **Immutable models.** Everything uses `@dataclass(frozen=True, slots=True)`. A compiled `Template` is immutable and safe to share across concurrent processes.
 - **Step AST.**
   - Each step kind is its own class. Every step carries its `TemplatePath` and `SourceLocation`.
   - Expressions are stored **compiled** (`Expression` AST plus original source), never as strings.
-  - A scalar is either a `Literal` or a `Compiled` value. Mixed strings become an `Interpolation` node.
 - **Expression engine.**
   - Hand-written lexer and Pratt parser, and a tree-walking evaluator with a step budget.
-  - Helpers are pure callables registered in a `HelperTable`.
   - Regex helpers depend on the `RegexEngine` protocol, and `now()`/`uuid()` on `Clock`/`RandomSource`. These are domain-service protocols, implemented outside the domain.
-- **Errors** are domain objects. Every layer raises the same hierarchy, so callers see consistent errors whichever layer failed.
-- **Function contract.** `FunctionSpec` and `Outcome` live here. The *invocation* machinery lives in application.
+- **Protocol-agnostic I/O model.**
+  - `Exchange` = `{adapter, target: Target(URI), request: Mapping, options}`.
+  - `ExchangeResult` = `{response: Mapping, meta}`.
+  - The domain never names HTTP. HTTP's request and response shapes live in `adapters/http` and are described to the core only through the adapter's JSON Schemas.
+- **Format-agnostic extraction model.**
+  - `FieldSpec` is the parsed field tree: queries with language, fallbacks, attr, `all`, `required`, `default`, nested fields.
+  - `Query` = `{language, source}`.
+  - The domain never names HTML.
+- **Specs.** `FunctionSpec`, `AdapterSpec` and `ExtractorSpec` are data. The behaviour (base classes, invocation, pipelines) lives in the application layer.
+- **Errors** are domain objects. Every layer raises the same hierarchy.
 - **Events** are plain dataclasses with mutable payload fields. Actions are value objects (`Skip`, `Replace`, `Retry`, `Abort`).
 
 ## 4. Application layer
 
-The application layer holds orchestration and policy. It is async (asyncio) and talks to the outside world only through ports.
+The application layer holds orchestration and policy. It is async (asyncio) and reaches the outside world only through **adapters** (network and other I/O) and **ports** (everything else).
 
 ### 4.1 Ports
 
@@ -190,22 +239,12 @@ class SchemaValidator(Protocol):
     def compile(self, schema: Mapping[str, Any]) -> CompiledSchema: ...
     # CompiledSchema.validate(instance) -> list[SchemaViolation]   (path, message, keyword)
 
-class HttpTransport(Protocol):
-    async def open_session(self, config: SessionConfig) -> TransportSession: ...
-    async def send(self, session: TransportSession, request: PreparedRequest) -> RawResponse: ...
-    async def close_session(self, session: TransportSession) -> None: ...
-
-class HostResolver(Protocol):
+class HostResolver(Protocol):                                          # used by PermissionGuard (SSRF)
     async def resolve(self, host: str) -> list[IPAddress]: ...
 
-class RateLimiter(Protocol):
-    async def acquire(self, host: str) -> None: ...
-
-class HtmlParser(Protocol):
-    def parse(self, html: str, base_url: str | None) -> HtmlNode: ...
-    def css(self, node: HtmlNode, selector: str) -> list[HtmlNode]: ...
-    def xpath(self, node: HtmlNode, expr: str) -> list[HtmlNode | str]: ...
-    def read(self, node: HtmlNode, attr: str) -> str | None: ...       # text/raw_text/html/inner_html/<attr>
+class CassetteStore(Protocol):
+    def load(self, path: str) -> Cassette: ...
+    def save(self, path: str, cassette: Cassette) -> None: ...
 
 class SecretsProvider(Protocol):
     def get(self, name: str) -> str | None: ...
@@ -214,30 +253,43 @@ class TraceSink(Protocol):
     def write(self, event: SerializedEvent) -> None: ...
 ```
 
-### 4.2 Use cases
+### 4.2 Registry and plugins
+
+There is one `Registry` per `Crowley` instance, holding four tables: functions, adapters, extractors and helpers.
+
+- `Registry.add_adapter(a)`:
+  - validates the `AdapterSpec` schemas (`E903`),
+  - checks name conflicts and `replace=` compatibility (`E906`),
+  - registers `a.functions()` under the adapter's namespace.
+- `Registry.add_extractor(e)`:
+  - validates the `ExtractorSpec`,
+  - generates `<name>.parse/select/select_all/extract` from the shared field engine,
+  - registers the router entry for its `media_types`.
+- `Registry.add_function(f)` computes the `HandlerBinding` once with `inspect.signature`. An incompatible signature fails with `E903`.
+- **Built-ins** are registered by the composition root as `HttpAdapterPlugin`, `BuiltinExtractorsPlugin` and `StdlibPlugin`, using the same calls as any third-party `Plugin`.
+- **Per-process overrides** (`cw.init(..., adapters=..., extractors=...)`) are layered over the registry in a `ProcessRegistryView`. The shared registry is never mutated.
+
+### 4.3 Use cases
 
 | Use case | Steps |
 |---|---|
-| `LoadTemplate` | source.resolve → parser.parse → `template.loaded` event (patchable) → meta-schema → `Compiler.compile` → `StaticValidator.check` → `CompiledTemplate` (cached by content hash) |
+| `LoadTemplate` | source.resolve → parser.parse → `template.loaded` event (patchable) → meta-schema → `Compiler.compile` → `StaticValidator.check` (functions, adapters, extractors, query languages, …) → `CompiledTemplate` (cached by content hash) |
 | `ValidateTemplate` | Same as load, but collects **all** diagnostics into a `ValidationReport` instead of raising |
-| `ExplainOperation` | Renders one operation's compiled AST as a plan (functions, loops, hosts, limits). Template-function calls are expanded inline. |
-| `RunOperation` | Selects the operation (`E904` if missing or unknown) → builds `RunState` (template-level config + that operation's limits) → resolves and validates the operation's inputs and the secrets → `Executor.run(operation.steps)` → validates against the operation's output schema → `RunResult` |
+| `ExplainOperation` | Renders one operation's compiled AST as a plan (functions, adapters, extractors, loops, hosts, limits). Template-function calls are expanded inline. |
+| `RunOperation` | Selects the operation (`E904`) → builds `RunState` → validates inputs and secrets → `Executor.run(operation.steps)` → validates output → closes adapter sessions → `RunResult` |
 | `StreamOperation` | `RunOperation` with an async-queue `OutputCollector` that yields emitted items |
-| `TestTemplate` | For each operation, for each `tests[]`: ReplayTransport + FrozenClock + SeededRandom → run → check expectations |
-| `RecordOperation` | RecordingTransport around the live transport → run → write a scrubbed HAR |
+| `TestTemplate` | For each operation, for each test: `AdapterService` in **replay** mode with the test's cassette + FrozenClock + SeededRandom → run → check expectations |
+| `RecordOperation` | `AdapterService` in **record** mode → run → `CassetteStore.save` (scrubbed); optional HAR export via the http adapter |
 
-### 4.3 Runtime
+### 4.4 Runtime
 
-- **Executor.** An AST walker with one handler per step kind (`dict[type[Step], StepHandler]`).
-  - Control flow (`return`, `break`, `continue`) travels as typed `ControlSignal` **return values**, not exceptions. This keeps it cheap and explicit.
+- **Executor.** An AST walker with one handler per step kind.
+  - Control flow (`return`, `break`, `continue`) travels as typed `ControlSignal` **return values**.
   - Errors travel as `CrowleyError` exceptions.
-- **Scope stack.** `Frame`s hold `steps`, `vars` and bindings. Frames are created per block, per loop iteration and per body invocation. Concurrent iterations get forked frames.
-- **Guards.** These are injected into every run and checked at choke points:
-  - `LimitsGuard` (requests, items, duration, depth, iterations),
-  - `PermissionGuard` (hosts and SSRF),
-  - the cancellation token.
+- **Scope stack.** `Frame`s hold `steps`, `vars`, bindings and the current `prev`. Concurrent iterations get forked frames.
+- **Guards** are checked at choke points: `LimitsGuard`, `PermissionGuard` (inside `AdapterService`) and the cancellation token.
 
-**Step pipeline.** Every step kind goes through this one code path, and the executor cannot run a step any other way. Every step handler is registered *only* through `StepPipeline`, so there is no back door around the events:
+**Step pipeline.** Every step kind goes through this one code path. Step handlers are registered *only* through `StepPipeline`, so there is no back door around the events:
 
 ```
 prev_in ─► when? ──false──► step.before → step.skipped ─► prev_out = prev_in
@@ -255,8 +307,6 @@ prev_in ─► when? ──false──► step.before → step.skipped ─► pr
            error ─► step.error (retry / replace / abort) ─► on_error policy
 ```
 
-`Frame` carries the current `prev`. The block runner threads it from step to step: `prev = await pipeline.run(step, frame, prev)`.
-
 **Function invocation pipeline** (`FunctionInvoker`, inside the `use` step handler):
 
 ```
@@ -264,7 +314,7 @@ evaluate with: (non-lazy args) → apply schema defaults → fill x-crowley-from
   → kwargs = {**args, "prev": prev}
   → emit function.before        (notifiers may change kwargs / skip / replace)
   → validate kwargs             (E403)  ← input schema (args) + prev schema (if declared)
-  → bind kwargs to the handler signature (precomputed at registration: **kwargs → all, else named only)
+  → bind kwargs to the handler signature (precomputed HandlerBinding)
   → handler(ctx, **bound)       (ctx.body set for block functions)
   → validate result             (E407)  ← output schema
   → emit function.after         (notifiers may change / replace / retry)
@@ -272,80 +322,104 @@ evaluate with: (non-lazy args) → apply schema defaults → fill x-crowley-from
   → on error: emit function.error → step on_error policy
 ```
 
-`HandlerBinding` is computed once, in `FunctionRegistry.register`, using `inspect.signature`. It records whether the handler accepts `**kwargs`, which parameter names it takes, and which parameters are required. An incompatible signature fails registration with `E903`.
+### 4.5 Exchange pipeline (`AdapterService`)
 
-**HTTP pipeline** (`HttpService`, used through `ctx.http`):
+Every exchange from every adapter goes through this pipeline, reached via `ctx.exchange(...)`:
 
 ```
-merge: HttpConfig < defaults.http < with: → build HttpRequest
-  → emit request.before        (mutate / replace with synthetic response / abort)
-  → PermissionGuard: host allow-list + resolve DNS + block private ranges (E604)
-  → LimitsGuard: max_requests
-  → RateLimiter.acquire(host)
-  → transport.send             (redirects followed here, each hop permission-checked)
-  → enforce max_response_bytes (E606), decode per response_type
-  → emit response.after        (mutate / replace / retry)
-  → expect_status check (E601) → retry policy (emit request.retry) → result
+resolve adapter (process override → registry; missing → E607)
+  → open session lazily (adapter.open, once per process per adapter)
+  → merge: adapter config < defaults.<adapter> < function args → Exchange
+  → validate request against adapter.request_schema   (E403)
+  → emit exchange.before         (change request / skip / replace with synthetic result / abort)
+  → PermissionGuard (target_kind=network): host allow-list, HostResolver + private-range block (E604)
+  → LimitsGuard: max_requests; RateLimiter (per host token bucket)
+  → mode = replay?  → Replayer.match(exchange) or E605
+          else      → adapter.send(session, exchange)   (reported hops re-checked by PermissionGuard)
+  → size cap (E606) → mode = record? → Recorder.append(adapter.serialize(...))
+  → validate response against adapter.response_schema (E407)
+  → emit exchange.after          (change result / replace / retry)
+  → retry policy (emit exchange.retry) → result
+  error anywhere → emit exchange.error (retry / replace / abort) → ExchangeError (E6xx)
 ```
 
-### 4.4 Event bus, notifier scopes and processes
+Adapter sessions are closed in `RunOperation`'s `finally` block (success, failure or cancellation).
+
+### 4.6 Extraction (`FieldExtractionEngine`)
+
+The engine is format-agnostic. It walks a compiled `FieldSpec` and calls only the three extractor methods:
+
+```
+source (from args or prev) → extractor.parse(raw, base_url, media_type) → root node
+  → root query? → extractor.select(node, root.query, root.language) → nodes
+  → for each field: try queries in order (fallbacks) → extractor.select(...)
+        first match at index > 0 → emit selector.fallback
+        no match → default | null | E502 (required)
+        attr → extractor.read(node, attr); nested fields → recurse
+  → object or list of objects
+```
+
+Literal queries are compiled and checked at template load time, so the static validator can report `E326`/`E327` before any network I/O.
+
+### 4.7 Event bus, notifier scopes and processes
 
 - `NotifierSet` is an ordered, versioned collection of notifiers and nested `NotifierRegistry` references. The `Crowley` instance (global scope), every `NotifierRegistry` and every `Process` each own one.
-- `Process` (in `application/runtime`) owns:
-  - one `RunState`,
-  - one `EventBus`,
-  - its `NotifierSet`,
-  - a cancellation token.
-
-  Its bus dispatches over **global set → process registries → process set**, merged by priority (SPEC §17.3).
-- **Index cache.** The bus caches a per-event-name index of matching notifiers. The cache key is the combined versions of all reachable sets, so adding or removing a notifier anywhere (even inside a shared registry) invalidates it without any locking. Everything runs on the event loop.
-- The shared parts (compiled templates, the function registry, the HTTP connection pool, the global `NotifierSet`) are read-mostly and safe for concurrent processes. Per-run state lives only in the `Process`.
-
-
-- `EventBus.intercept(event)` runs the matching interceptors in priority order and returns the first `Action`, or `None`.
-- `EventBus.notify(event)` sends a frozen copy to observers and to the `TraceSink`.
-- Notifier filters are pre-indexed by event name, so events with no notifiers cost almost nothing.
-- `expression.evaluated` is compiled out unless it is enabled.
-- **Revalidation.** The bus marks an event as `dirty` when a mutable field is assigned (through tracked proxies for dicts and lists). The emitting pipeline then revalidates, according to the SPEC §17.1 table.
+- `Process` owns one `RunState`, one `EventBus`, its `NotifierSet`, its `ProcessRegistryView`, its adapter sessions and a cancellation token. Its bus dispatches over **global set → process registries → process set**, merged by priority (SPEC §17.3).
+- **Index cache.** The bus caches a per-event-name index of matching notifiers. The cache key is the combined versions of all reachable sets, so adding or removing a notifier anywhere invalidates it without locking.
+- `EventBus.intercept(event)` returns the first `Action`. `EventBus.notify(event)` sends frozen copies to observers and the `TraceSink`.
+- **Revalidation.** Assigning to a mutable event field marks the event `dirty`, and the emitting pipeline revalidates it (SPEC §17.1).
+- **Shared parts:** compiled templates, the registry, adapter instances (not sessions) and the global `NotifierSet` are read-mostly and safe for concurrent processes.
 
 ---
 
-## 5. Adapters
+## 5. Built-in plugins and providers
 
-| Port | v1 adapter | Library | Notes |
+### 5.1 Plugins (ring 3, registered like third-party plugins)
+
+| Kind | Name | Package | Library | Notes |
+|---|---|---|---|---|
+| Adapter | `http` | `crowley.adapters.http` | httpx | HTTP/1.1 + HTTP/2. Redirects handled by the adapter and reported as hops, so each hop is permission-checked. Provides `http.*`. HAR import/export. |
+| Extractor | `html` | `crowley.extractors.html` | lxml, cssselect | css (default), xpath |
+| Extractor | `xml` | `crowley.extractors.xml` | lxml | xpath (default), css |
+| Extractor | `json` | `crowley.extractors.json` | python-jsonpath | jsonpath |
+| Extractor | `text` | `crowley.extractors.text` | regex | regex (fallback for any media type) |
+| Functions | `paginate`, `transform`, `control`, `extract` | `crowley.stdlib` | — | |
+
+### 5.2 Providers (ring 3, implement application ports)
+
+| Port | Provider | Library | Notes |
 |---|---|---|---|
 | TemplateParser | `RuamelTemplateParser` | ruamel.yaml | Position map for every node; rejects duplicate keys and custom tags |
-| SchemaValidator | `JsonSchemaValidator` | jsonschema | Draft 2020-12 with format checking (`uri`, `date-time`, `email`, ...) |
-| HttpTransport | `HttpxTransport` | httpx | HTTP/1.1 + HTTP/2. Redirects handled manually so every hop is checked |
-| HttpTransport | `RecordingTransport`, `ReplayTransport` | — | HAR 1.2. Decorator/standalone. Used by `record`/`test` |
-| HostResolver | `SystemHostResolver` | asyncio `getaddrinfo` | The resolved IP is pinned for the connection to prevent DNS rebinding |
-| RateLimiter | `TokenBucketRateLimiter` | — | Per host |
-| HtmlParser | `LxmlHtmlParser` | lxml, cssselect | |
-| RegexEngine | `RegexLibEngine` | regex | Per-call timeout |
+| SchemaValidator | `JsonSchemaValidator` | jsonschema | Draft 2020-12 with format checking |
+| HostResolver | `SystemHostResolver` | asyncio `getaddrinfo` | The resolved IP is pinned for the connection (DNS-rebinding protection) |
+| CassetteStore | `JsonCassetteStore` | — | |
+| RegexEngine | `RegexLibEngine` | regex | Per-call timeout, for expression helpers |
 | TemplateSource | `DirectorySource`, `FileSource`, `InMemorySource` | — | `HubSource` later |
 | SecretsProvider | `DictSecrets`, `EnvSecrets` | — | |
 | TraceSink | `JsonTraceSink`, `NullTraceSink` | — | |
 | Clock / RandomSource | `SystemClock`, `SystemRandom`, `FrozenClock`, `SeededRandom` | — | |
 
-The **stdlib** registers itself through `StdlibPlugin`, exactly like a third-party plugin. The only difference is that it may use reserved namespaces.
-
 ## 6. Interface layer and composition root
 
-`interface/sdk.py` is the **only** place where concrete adapters are created and wired:
+`interface/sdk.py` is the **only** place where providers are created and built-in plugins are registered:
 
 ```python
 class Crowley:
-    def __init__(self, *, sources=None, functions=(), plugins=(), helpers=None,
-                 secrets=None, limits=None, http=None, load_entry_points=False,
-                 transport: HttpTransport | None = None,          # override for tests/custom stacks
-                 html_parser: HtmlParser | None = None, ...):
-        self._container = Container.build(...)                    # ports → adapters
-        self._registry = FunctionRegistry.with_plugins([StdlibPlugin(), *plugins], functions)
-        self._bus = EventBus()
+    def __init__(self, *, sources=None, functions=(), adapters=(), extractors=(), plugins=(),
+                 helpers=None, secrets=None, limits=None, load_entry_points=False,
+                 providers: Providers | None = None, ...):        # override ports (tests, custom stacks)
+        self._providers = providers or Providers.default()
+        self._registry = Registry()
+        for plugin in (HttpAdapterPlugin(), BuiltinExtractorsPlugin(), StdlibPlugin(), *plugins):
+            plugin.register(self._registry)
+        for a in adapters:   self._registry.add_adapter(a, allow_builtin_replace=True)
+        for e in extractors: self._registry.add_extractor(e, allow_builtin_replace=True)
         ...
+    def register_adapter(self, adapter, *, replace: str | None = None) -> None: ...
+    def register_extractor(self, extractor, *, replace: str | None = None) -> None: ...
 ```
 
-Advanced users can replace any adapter through constructor arguments. Every adapter is just a `Protocol` implementation. The CLI is a thin client of the same facade.
+Passing a configured built-in in `adapters=` (e.g. `HttpAdapter(user_agent=...)`) replaces the default instance of that built-in. The CLI is a thin client of the same facade.
 
 ---
 
@@ -353,11 +427,14 @@ Advanced users can replace any adapter through constructor arguments. Every adap
 
 | Need | How |
 |---|---|
-| New functions | `@function` + `register()`, or a `Plugin` with its own namespace |
-| New expression helpers | `Crowley(helpers={...})` (pure functions only) |
-| Different HTTP stack | Implement `HttpTransport` (e.g. curl-cffi) and pass `transport=` |
-| **Browser rendering (later)** | New port `BrowserPort` in `application/ports`, a `PlaywrightBrowser` adapter in `infrastructure/browser`, and a `browser.*` plugin in `stdlib`-style. It reuses `PermissionGuard`, `LimitsGuard` and the `request.*`/`response.*` events. No core changes are needed beyond adding the port to `FunctionContext`. |
-| **Hub (later)** | `HubSource` implementing `TemplateSource` (resolves `owner/name@range`, checks hashes and signatures, caches) |
+| New functions | `@function` + `register()`, or a `Plugin` |
+| New expression helpers | `Crowley(helpers={...})` or `Registry.add_helper` (pure functions only) |
+| **New protocol / transport** (WebSocket, GraphQL, gRPC, SOAP, files…) | Subclass `BaseAdapter`, implement `open`/`send`/`close` (+ `functions()`), register it. Permissions, limits, notifiers, retries and record/replay come from `AdapterService`. |
+| **Browser rendering (later)** | A `browser` adapter (Playwright) in `crowley.adapters.browser`, with `browser.*` functions. No core change. |
+| **Different HTTP stack** (e.g. curl-cffi) | `register_adapter(MyHttp(), replace="http")` with a compatible contract. Templates are unchanged. |
+| **New content format** (CSV, PDF, YAML, Markdown…) | Subclass `BaseExtractor`, implement `parse`/`select`/`read`, register it. The field engine, generated functions, `extract.auto` routing and validation come for free. |
+| **Different HTML engine** (e.g. selectolax) | `register_extractor(MyHtml(), replace="html")` |
+| **Hub (later)** | `HubSource` implementing `TemplateSource` |
 | Other template formats | Implement `TemplateParser` (e.g. JSON or TOML) |
 | Output sinks (later) | `OutputSink` port consuming the `OutputCollector` stream |
 
@@ -365,25 +442,37 @@ Advanced users can replace any adapter through constructor arguments. Every adap
 
 ## 8. Concurrency model
 
-- Single event loop per run. `for_each`, `control.parallel` and paginate prefetch (if added) use `asyncio.TaskGroup`, bounded by semaphores (local `concurrency` and global `limits.max_concurrency`).
-- Sync user functions run in `asyncio.to_thread`. CPU-heavy parsing (lxml) runs in place by default. `HtmlParser` MAY offload large documents (> 1 MB) to a thread.
-- `run_sync()` uses `asyncio.run`. If an event loop is already running, it raises `E902` and tells the caller to use `await run()`.
-- Cancellation: `Process.cancel()` cancels that process's root task only. Other processes are unaffected. Every guard and port respects `CancelledError`, which surfaces as `E803`.
+- One event loop per process run. `for_each`, `control.parallel` and paginate prefetch (if added) use `asyncio.TaskGroup`, bounded by semaphores (local `concurrency` and global `limits.max_concurrency`).
+- Sync user functions run in `asyncio.to_thread`. Extractors run in place by default. An extractor MAY declare `offload_threshold_bytes` so that large documents are parsed in a thread.
+- `run_sync()` uses `asyncio.run`. If an event loop is already running, it raises `E902`.
+- `Process.cancel()` cancels that process's root task only. Adapter sessions are still closed. Cancellation surfaces as `E803`.
 
 ## 9. Testing strategy
 
 | Layer | Approach |
 |---|---|
-| Domain | Pure unit tests. Property-based tests (hypothesis) for the lexer, parser and evaluator round-trip, and to check that no input crashes the parser with anything other than `E321`. |
-| Application | Runtime tests with in-memory fakes (`FakeTransport`, `FakeHtmlParser`, `InMemorySource`). Static-validator tests: one fixture template per error code. **Notifier conformance test:** a template that uses every step kind at several nesting depths must produce exactly one `step.before` and one `step.after`/`step.error`/`step.skipped` per executed step, and changes to `prev`, `kwargs` and `result` must reach the next step. **Piping test:** checks the `prev` rules for every step kind (SPEC §8.4). **Process isolation test:** several concurrent processes, each with different process notifiers and registries plus shared globals, must each see only global + their own notifiers, and the dispatch order must match SPEC §17.3. |
-| Stdlib | Each function tested against fake ports. Golden tests for `html.extract` field specs. |
-| Infrastructure | Contract tests shared across adapters. httpx with respx. A real lxml parser on fixture HTML. HAR round-trip. |
+| Domain | Pure unit tests. Property-based tests (hypothesis) for the lexer, parser and evaluator; the parser may only fail with `E321`. |
+| Application | Runtime tests with fake adapters and extractors (`FakeAdapter`, `FakeExtractor`, `InMemorySource`). Static-validator tests: one fixture template per error code. **Notifier conformance test** (every step kind fires before/after exactly once; changes reach the next step). **Piping test** (SPEC §8.4). **Process isolation test** (SPEC §17.3). **Exchange pipeline test:** permissions, limits, retries, replay/record and events behave the same for a fake adapter as for `http`. |
+| Adapters | A reusable **adapter contract suite**, `crowley.testing.adapter_contract`, run against `http` and available to plugin authors. HTTP specifics with respx (redirect hops, headers merge, HAR import/export). |
+| Extractors | A reusable **extractor contract suite**, `crowley.testing.extractor_contract`, run against every built-in and available to plugin authors. Golden field-spec tests per extractor. |
+| Stdlib | Each function tested against fake adapters and extractors. |
+| Infrastructure | Provider tests: YAML positions, schema validation, sources, cassette round-trip. |
 | Interface | click `CliRunner` tests for every command and exit code. SDK facade smoke tests. |
-| E2E | `examples/` templates run through `crowley test` (ReplayTransport) in CI. |
-| Architecture | `lint-imports` in CI. A test that the meta-schema in `schema/` matches the one generated from the domain. |
+| E2E | `examples/` templates run through `crowley test` (cassette replay) in CI. |
+| Architecture | `lint-imports` in CI (layers, forbidden third-party, independence). A test that `schema/` matches the meta-schema generated from the domain. |
 
 ## 10. Tooling
 
-- **Runtime dependencies:** `httpx[http2]`, `ruamel.yaml`, `jsonschema[format]`, `lxml`, `cssselect`, `regex`, `click`.
+- **Runtime dependencies** (each used only by the ring-3 package that needs it):
+
+  | Dependency | Used by |
+  |---|---|
+  | `httpx[http2]` | `adapters.http` |
+  | `lxml`, `cssselect` | `extractors.html` and `extractors.xml` |
+  | `python-jsonpath` | `extractors.json` |
+  | `regex` | `extractors.text` and `infrastructure.regex` |
+  | `ruamel.yaml`, `jsonschema[format]` | `infrastructure` |
+  | `click` | `interface` |
+
 - **Dev tooling:** `uv`, `ruff` (lint and format), `mypy --strict`, `pytest`, `pytest-asyncio`, `hypothesis`, `respx`, `import-linter`, `coverage`.
-- **Packaging:** `src/` layout, a hatchling build backend, a `crowley` console script, and a `py.typed` marker.
+- **Packaging:** `src/` layout, a hatchling build backend, a `crowley` console script, and a `py.typed` marker. Later, built-in adapters and extractors MAY move behind extras (`crowley[http]`), because each one is an independent package.

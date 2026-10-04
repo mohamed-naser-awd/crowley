@@ -1,1 +1,1 @@
-"""Layer 3 (infrastructure): adapters implementing application ports."""
+"""Layer 3 (infrastructure): providers implementing application ports (YAML, schema, ...)."""

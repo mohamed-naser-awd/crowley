@@ -28,6 +28,7 @@ dependencies = [
     "httpx[http2]>=0.27",
     "jsonschema[format]>=4.23",
     "lxml>=5.3",
+    "python-jsonpath>=1.2",
     "regex>=2024.9",
     "ruamel.yaml>=0.18",
 ]
@@ -100,7 +101,7 @@ name = "Onion layers"
 type = "layers"
 layers = [
     "crowley.interface",
-    "crowley.stdlib | crowley.infrastructure",
+    "crowley.adapters | crowley.extractors | crowley.stdlib | crowley.infrastructure",
     "crowley.application",
     "crowley.domain",
 ]
@@ -109,4 +110,15 @@ layers = [
 name = "Core has no third-party deps"
 type = "forbidden"
 source_modules = ["crowley.domain", "crowley.application", "crowley.stdlib"]
-forbidden_modules = ["httpx", "ruamel", "jsonschema", "lxml", "cssselect", "regex", "click"]
+forbidden_modules = ["httpx", "ruamel", "jsonschema", "lxml", "cssselect", "regex", "jsonpath", "click"]
+
+[[tool.importlinter.contracts]]
+name = "Built-in extractors are independent"
+type = "independence"
+modules = [
+    "crowley.extractors.html",
+    "crowley.extractors.xml",
+    "crowley.extractors.json",
+    "crowley.extractors.text",
+]
+# "Built-in adapters are independent" is added when a second built-in adapter lands.

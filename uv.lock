@@ -261,6 +261,7 @@ dependencies = [
     { name = "httpx", extra = ["http2"] },
     { name = "jsonschema", extra = ["format"] },
     { name = "lxml" },
+    { name = "python-jsonpath" },
     { name = "regex" },
     { name = "ruamel-yaml" },
 ]
@@ -285,6 +286,7 @@ requires-dist = [
     { name = "httpx", extras = ["http2"], specifier = ">=0.27" },
     { name = "jsonschema", extras = ["format"], specifier = ">=4.23" },
     { name = "lxml", specifier = ">=5.3" },
+    { name = "python-jsonpath", specifier = ">=1.2" },
     { name = "regex", specifier = ">=2024.9" },
     { name = "ruamel-yaml", specifier = ">=0.18" },
 ]
@@ -1115,6 +1117,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee498c46e004a0eb49bc148f2fd230864601a86dcf6db/python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3", size = 342432, upload-time = "2024-03-01T18:36:20.211Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
+]
+
+[[package]]
+name = "python-jsonpath"
+version = "2.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ee/65/5dcdbd783b98a936f6aacee699aed4c0978d74cb0f8ad61dc59bb39b809a/python_jsonpath-2.2.1.tar.gz", hash = "sha256:3de7862cbc56566b61c2c25fe5a398bbba9466e972c1069a4c82cb60a8034dc5", size = 51022, upload-time = "2026-07-07T09:56:08.062Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2d/c1/e8ccd211bc8c411eb84341ae3ded659e6bdb926697fb7724e2dbbf8077cf/python_jsonpath-2.2.1-py3-none-any.whl", hash = "sha256:ff3a65df52336fec13e2728612d6e2a76221264762a1b5385fac5dd21ae6f40e", size = 65235, upload-time = "2026-07-07T09:56:06.755Z" },
 ]
 
 [[package]]
