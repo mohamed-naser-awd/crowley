@@ -110,6 +110,14 @@ class SchemaValidator(Protocol):
         ...
 
 
+class HostResolver(Protocol):
+    """DNS for the SSRF guard (docs/SPEC.md §4)."""
+
+    async def resolve(self, host: str) -> list[str]:
+        """The IP addresses ``host`` resolves to. Raises ``OSError`` if it can't be resolved."""
+        ...
+
+
 class SecretsProvider(Protocol):
     """Where secret values come from (docs/SPEC.md §3.3)."""
 
@@ -120,6 +128,7 @@ class SecretsProvider(Protocol):
 
 __all__ = [
     "CompiledSchema",
+    "HostResolver",
     "Origin",
     "PositionMap",
     "RawDocument",

@@ -12,7 +12,13 @@ from crowley.application.adapters import BaseAdapter
 from crowley.application.compiler import Compiler, StaticValidator
 from crowley.application.events import NotifierScope, NotifierSet
 from crowley.application.extractors import BaseExtractor
-from crowley.application.ports import Origin, SecretsProvider, TemplateSource, TemplateText
+from crowley.application.ports import (
+    HostResolver,
+    Origin,
+    SecretsProvider,
+    TemplateSource,
+    TemplateText,
+)
 from crowley.application.registry import Plugin, RegisteredFunction, Registry
 from crowley.application.use_cases import (
     LoadTemplate,
@@ -33,6 +39,7 @@ from crowley.extractors.html import HtmlExtractor
 from crowley.extractors.json import JsonExtractor
 from crowley.extractors.text import TextExtractor
 from crowley.extractors.xml import XmlExtractor
+from crowley.infrastructure.network import SystemHostResolver
 from crowley.infrastructure.regex import RegexLibEngine
 from crowley.infrastructure.schema import JsonSchemaValidator
 from crowley.infrastructure.secrets import DictSecrets
@@ -69,6 +76,7 @@ class Crowley(NotifierScope):
         strict_observers: bool = False,
         clock: Clock | None = None,
         random: RandomSource | None = None,
+        resolver: HostResolver | None = None,
     ) -> None:
         self._notifier_set = NotifierSet("global")
         self._strict_observers = strict_observers
@@ -114,6 +122,7 @@ class Crowley(NotifierScope):
             clock=clock,
             limits=limits or Limits(),
             secrets=provider,
+            resolver=resolver or SystemHostResolver(),
         )
 
     # ── registration ──────────────────────────────────────────────────────────
@@ -167,6 +176,7 @@ class Crowley(NotifierScope):
         secrets: Mapping[str, str] | None = None,
         limits: Limits | None = None,
         notifiers: ProcessNotifiers | None = None,
+        adapters: Mapping[str, BaseAdapter] | None = None,
     ) -> Process:
         """Create a process for one operation. Inputs and secrets are validated now.
 
@@ -178,7 +188,7 @@ class Crowley(NotifierScope):
             ref, operation = _split_ref(template, operation)
             template = self.load(ref)
         prepared = self._runner.prepare(
-            template, operation, inputs=inputs, secrets=secrets, limits=limits
+            template, operation, inputs=inputs, secrets=secrets, limits=limits, adapters=adapters
         )
         return Process(
             runner=self._runner,
@@ -205,10 +215,17 @@ class Crowley(NotifierScope):
         secrets: Mapping[str, str] | None = None,
         limits: Limits | None = None,
         notifiers: ProcessNotifiers | None = None,
+        adapters: Mapping[str, BaseAdapter] | None = None,
     ) -> RunResult:
         """Shortcut for ``init(...)`` followed by ``run()``."""
         process = await self._init_async(
-            template, operation, inputs=inputs, secrets=secrets, limits=limits, notifiers=notifiers
+            template,
+            operation,
+            inputs=inputs,
+            secrets=secrets,
+            limits=limits,
+            notifiers=notifiers,
+            adapters=adapters,
         )
         return await process.run()
 
@@ -221,6 +238,7 @@ class Crowley(NotifierScope):
         secrets: Mapping[str, str] | None = None,
         limits: Limits | None = None,
         notifiers: ProcessNotifiers | None = None,
+        adapters: Mapping[str, BaseAdapter] | None = None,
     ) -> RunResult:
         """Synchronous ``run``; not usable inside a running event loop (E902)."""
         return run_sync(
@@ -231,6 +249,7 @@ class Crowley(NotifierScope):
                 secrets=secrets,
                 limits=limits,
                 notifiers=notifiers,
+                adapters=adapters,
             )
         )
 
@@ -243,10 +262,17 @@ class Crowley(NotifierScope):
         secrets: Mapping[str, str] | None = None,
         limits: Limits | None = None,
         notifiers: ProcessNotifiers | None = None,
+        adapters: Mapping[str, BaseAdapter] | None = None,
     ) -> AsyncIterator[Value]:
         """Shortcut for ``init(...)`` followed by ``stream()``."""
         process = await self._init_async(
-            template, operation, inputs=inputs, secrets=secrets, limits=limits, notifiers=notifiers
+            template,
+            operation,
+            inputs=inputs,
+            secrets=secrets,
+            limits=limits,
+            notifiers=notifiers,
+            adapters=adapters,
         )
         async for item in process.stream():
             yield item
