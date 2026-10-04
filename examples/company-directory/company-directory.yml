@@ -1,0 +1,128 @@
+crowley: 1
+id: examples/company-directory
+version: 1.0.0
+name: Example company directory
+description: Company pages and their people from directory.example.com.
+tags: [companies, example]
+
+permissions:
+  hosts: [directory.example.com]
+
+secrets:
+  API_TOKEN: { description: Directory API token }
+
+defaults:
+  http:
+    headers:
+      Accept: application/json
+      Authorization: "Bearer ${{ secrets.API_TOKEN }}"
+    timeout: 20s
+    retry: { times: 2, on_status: [429, 503], backoff: exponential }
+
+limits:
+  max_requests: 200
+
+schemas:
+  person:
+    type: object
+    additionalProperties: false
+    required: [id, name]
+    properties:
+      id:    { type: string }
+      name:  { type: string, minLength: 1 }
+      title: { type: [string, "null"] }
+
+# ── Template functions: step groups reused by several operations ───────────────
+functions:
+  fetch_json:
+    description: GET a directory API path and return the JSON body.
+    input:
+      type: object
+      required: [path]
+      properties:
+        path:  { type: string }
+        query: { type: object, default: {} }
+    output: { type: object }
+    steps:
+      - use: http.get
+        with:
+          url: ${{ 'https://directory.example.com/api/' + args.path }}
+          query: ${{ args.query }}
+          response_type: json
+      - return: ${{ prev.body }}
+
+  normalize_person:
+    description: Map a raw API person to the public person shape.
+    input:
+      type: object
+      required: [raw]
+      properties: { raw: { type: object } }
+    output: { $ref: "#/schemas/person" }
+    steps:
+      - return:
+          id:    ${{ str(args.raw.id) }}
+          name:  ${{ trim(args.raw.full_name) }}
+          title: ${{ args.raw?.headline }}
+
+# ── Operations ────────────────────────────────────────────────────────────────
+operations:
+  get_page_info:
+    description: Details of one company page.
+    inputs:
+      company: { type: string, minLength: 1, description: Company slug }
+    steps:
+      - use: local.fetch_json
+        with:
+          path: ${{ 'companies/' + url_encode(inputs.company) }}
+    output:
+      value:                                   # prev = fetch_json result
+        name:      ${{ prev.name }}
+        followers: ${{ prev.follower_count }}
+        website:   ${{ prev?.website }}
+      schema:
+        type: object
+        required: [name, followers]
+        properties:
+          name:      { type: string }
+          followers: { type: integer, minimum: 0 }
+          website:   { type: [string, "null"], format: uri }
+    tests:
+      - name: acme page
+        inputs: { company: acme }
+        fixtures: fixtures/page-info-acme.cassette.json
+        expect: { snapshot: snapshots/page-info-acme.json }
+
+  get_page_people:
+    description: People listed on a company page.
+    inputs:
+      company:   { type: string, minLength: 1 }
+      max_pages: { type: integer, default: 5, minimum: 1, maximum: 50 }
+    steps:
+      - use: paginate.by_cursor
+        with:
+          max_pages: ${{ inputs.max_pages }}
+          next_cursor: ${{ result.next_cursor }}      # lazy: evaluated after each page
+        do:
+          - use: local.fetch_json
+            with:
+              path: ${{ 'companies/' + url_encode(inputs.company) + '/people' }}
+              query:
+                cursor: ${{ page.cursor }}            # null on the first page → omitted
+      - for_each: ${{ flatten(prev[*].people) }}
+        as: person
+        do:
+          - use: local.normalize_person
+            with: { raw: "${{ person }}" }
+          - emit: ${{ prev }}
+    output:
+      schema:
+        type: array
+        items: { $ref: "#/schemas/person" }
+    tests:
+      - name: two pages
+        inputs: { company: acme, max_pages: 2 }
+        fixtures: fixtures/people-acme.cassette.json
+        expect:
+          min_items: 1
+          assert:
+            - ${{ len(unique(output[*].id)) == len(output) }}
