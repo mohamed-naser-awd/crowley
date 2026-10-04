@@ -16,7 +16,8 @@ from crowley import Crowley
 
 report = Crowley().validate("examples/company-directory/company-directory.yml")
 for diagnostic in report.diagnostics:
-    print(diagnostic)   # E305 at operations.op.steps[1].with.url (site.yml:14:9): unknown step 'rows'
+    # E305 at operations.op.steps[1].with.url (site.yml:14:9): unknown step 'rows'
+    print(diagnostic)
 ```
 
 ## Documentation
