@@ -2,7 +2,7 @@
 
 Crowley is a Python SDK that runs declarative scraping templates written in YAML. A template describes one site or API as a set of named **operations** (for example `get_page_info` and `get_page_people`). Each operation is built from a registry of **functions**, such as `http.get`, `html.extract` and `paginate.by_cursor`, combined with conditions and loops. All I/O goes through pluggable **adapters** (HTTP is built in), and all parsing goes through pluggable **extractors** (HTML, XML, JSON and text are built in). You can register your own. Every operation's output is checked against a schema, and invalid data stops the run. You can observe and change every step at runtime through **notifiers**.
 
-> **Status:** pre-alpha. The template language is in place (milestone M1): templates load, compile and are statically validated. Running operations arrives with the runtime (M2).
+> **Status:** pre-alpha. Templates load, compile and are statically validated (M1), and operations run with notifiers, `prev` piping, template functions and your own Python functions (M2). Built-in adapters, extractors and stdlib functions arrive in M3.
 
 ## Validate a template
 
@@ -19,6 +19,64 @@ for diagnostic in report.diagnostics:
     # E305 at operations.op.steps[1].with.url (site.yml:14:9): unknown step 'rows'
     print(diagnostic)
 ```
+
+## Run an operation
+
+Built-in adapters and the stdlib (`http.*`, `paginate.*`, …) gain their implementations in M3. Until then, operations run with your own functions:
+
+```python
+import asyncio
+
+from crowley import Crowley, FunctionContext, function
+
+TEMPLATE = """
+crowley: 1
+id: acme/greetings
+version: 1.0.0
+name: Greetings
+description: Greets people.
+permissions: { hosts: [api.example.com] }
+requires: ["acme.*@^1"]
+operations:
+  greet:
+    description: One greeting per name.
+    inputs:
+      names: { type: array, items: { type: string } }
+    steps:
+      - for_each: ${{ inputs.names }}
+        as: name
+        do:
+          - use: acme.shout
+            with: { text: "${{ 'hello ' + name }}" }
+          - emit: ${{ prev }}
+    output:
+      schema: { type: array, items: { type: string } }
+"""
+
+
+@function(
+    name="acme.shout",
+    input={"type": "object", "required": ["text"], "properties": {"text": {"type": "string"}}},
+    output={"type": "string"},
+)
+async def shout(ctx: FunctionContext, text: str) -> str:
+    return text.upper()
+
+
+async def main() -> None:
+    cw = Crowley(functions=[shout])
+    template = cw.load_text(TEMPLATE)
+
+    process = cw.init(template, "greet", inputs={"names": ["ada", "alan"]})
+    process.add_notifier("item.emit", lambda event: print("emitted", event.item))
+    result = await process.run()
+    print(result.output)  # ['HELLO ADA', 'HELLO ALAN']
+
+
+asyncio.run(main())
+```
+
+Every step fires `step.before` and `step.after` (and every function call fires `function.before` and `function.after`). Notifiers can change a step's incoming `prev`, its arguments and its result, or skip, replace, retry and abort it. Attach notifiers globally (`cw.add_notifier`), to a reusable `NotifierRegistry`, or to one process.
 
 ## Documentation
 

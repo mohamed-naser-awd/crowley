@@ -110,6 +110,14 @@ class SchemaValidator(Protocol):
         ...
 
 
+class SecretsProvider(Protocol):
+    """Where secret values come from (docs/SPEC.md §3.3)."""
+
+    def get(self, name: str) -> str | None:
+        """The value of secret ``name``, or ``None`` if it is not set."""
+        ...
+
+
 __all__ = [
     "CompiledSchema",
     "Origin",
@@ -117,6 +125,7 @@ __all__ = [
     "RawDocument",
     "SchemaValidator",
     "SchemaViolation",
+    "SecretsProvider",
     "TemplateParser",
     "TemplateSource",
     "TemplateText",

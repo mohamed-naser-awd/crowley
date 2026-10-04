@@ -1410,12 +1410,14 @@ Matching notifiers are sorted by `priority` (highest first). Ties keep the scope
 | `cw.init(template, operation=None, *, inputs=None, secrets=None, limits=None, trace="summary")` | Resolves the template, selects the operation (`E904`) and **validates inputs and secrets immediately** (`E401`/`E402`). Returns a `Process` in state `created`. |
 | `process.id`, `.template`, `.operation`, `.inputs`, `.status` | `status`: `created` → `running` → `succeeded` / `failed` / `cancelled` |
 | `await process.run()` | Runs to completion and returns a `RunResult` |
-| `process.stream()` | Async iterator of emitted items (emit-mode operations) |
+| `process.stream()` | Async iterator of emitted items, as they are emitted. For value and pipe operations it yields the final output once. Leaving the loop early cancels the run. |
 | `process.start()` / `await process.result()` | Starts in the background, then awaits the result |
 | `process.cancel()` | Cancels the run (`E803`) |
 | `process.run_sync()` | Sync wrapper |
 
 - A process runs **once**. Calling `run`, `stream` or `start` again causes `E905`. Create a new process with `cw.init` instead.
+- `cw.init` also accepts a reference, `"file.yml"` or `"file.yml#operation"`. Because `init` is synchronous, references are loaded synchronously. Inside an event loop, load the template first with `await cw.load_async(...)`, or use `await cw.run("file.yml#operation", ...)`.
+- Secret values are masked as `***` in error messages and values and in event `scope` views.
 - Processes are independent: separate event bus, scopes, limits counters, cookie session, trace and cancellation token. Many processes can run concurrently on one `Crowley` instance.
 - The shared parts (compiled templates, the function registry, the HTTP connection pool and global notifiers) are safe to use concurrently.
 

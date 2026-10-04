@@ -129,6 +129,12 @@ class NotifierSet:
         self._touch()
         return NotifierHandle(self, notifier)
 
+    def add(self, notifier: Notifier) -> NotifierHandle:
+        """Attach an already-built :class:`Notifier`."""
+        self._notifiers.append(notifier)
+        self._touch()
+        return NotifierHandle(self, notifier)
+
     def on(self, event: str, **filters: Any) -> Callable[[F], F]:
         """Decorator form of :meth:`add_notifier`."""
 

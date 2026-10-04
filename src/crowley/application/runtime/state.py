@@ -26,6 +26,17 @@ _EMPTY: Mapping[str, Value] = MappingProxyType({})
 NOTHING = Interception()
 
 
+REDACTED = "***"
+
+
+def _redacted(scope: dict[str, Any]) -> dict[str, Any]:
+    """Event scope views never carry secret values."""
+    secrets = scope.get("secrets")
+    if isinstance(secrets, Mapping) and secrets:
+        scope["secrets"] = dict.fromkeys(secrets, REDACTED)
+    return scope
+
+
 @dataclass(slots=True, kw_only=True)
 class RunStats:
     """Counters reported in ``RunResult.stats`` (SPEC §20)."""
@@ -60,7 +71,7 @@ class RunState:
         env: EvalEnv | None = None,
         clock: Clock | None = None,
         validate_item: ItemValidator | None = None,
-        streaming: bool = False,
+        output: OutputCollector | None = None,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
     ) -> None:
         self.run = run
@@ -69,7 +80,7 @@ class RunState:
         self.env = env or EvalEnv()
         self.clock = clock
         self.validate_item = validate_item
-        self.output = OutputCollector(streaming=streaming)
+        self.output = output if output is not None else OutputCollector()
         self.stats = RunStats()
         self.sleep = sleep
 
@@ -105,5 +116,5 @@ class RunState:
         if not self.bus.has_listeners(event.name):
             return event, NOTHING
         if frame is not None:
-            event.scope = MappingProxyType(frame.scope(scope_prev))
+            event.scope = MappingProxyType(_redacted(frame.scope(scope_prev)))
         return event, await self.bus.publish(event)

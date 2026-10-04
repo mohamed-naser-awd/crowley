@@ -288,6 +288,7 @@ There is one `Registry` per `Crowley` instance, holding four tables: functions, 
   - Errors travel as `CrowleyError` exceptions.
 - **Scope stack.** `Frame`s hold `steps`, `vars`, bindings and the current `prev`. Concurrent iterations get forked frames.
 - **Guards** are checked at choke points: `LimitsGuard`, `PermissionGuard` (inside `AdapterService`) and the cancellation token.
+- **Modules** (`application/runtime`): `frame.py` (`Frame`), `signals.py` (`Return`/`Break`/`Continue`, `HandlerResult`, `StepOutcome`), `state.py` (`RunState`, `RunStats`; `publish` builds event scope views only when an event has listeners, with secrets masked), `pipeline.py` (`StepPipeline`), `executor.py` (`Executor`), `invoker.py` (`FunctionInvoker`, which also runs `local.*` template functions), `context.py` (`FunctionContext`, `Body`), `limits.py` (`LimitsGuard`), `output.py` (`OutputCollector`). `Process` and `RunOperation` live in `application/use_cases` (`process.py`, `run.py`), because they orchestrate the runtime.
 
 **Step pipeline.** Every step kind goes through this one code path. Step handlers are registered *only* through `StepPipeline`, so there is no back door around the events:
 
