@@ -189,13 +189,12 @@ cw = Crowley(functions=functions)
 ```
 
 ```yaml
-requires: ["acme.*@^1"]           # templates declare the functions they need
-...
           - use: acme.clean_price
             with: { text: "${{ book.price }}" }
 ```
 
 - **Naming.** A function is `<namespace>.<function name>`. `@functions.function("other_name")` renames it, and a full name like `"tools.count"` sets another namespace. `FunctionRegistry()` without a namespace uses `app`.
+- **Versions (optional).** A template can pin what it needs with `requires: ["acme.*@^1"]`. If the functions are missing or have an incompatible version, `crowley validate` reports E302 before anything runs. This is useful for templates you share.
 - **Combining.** `Crowley(functions=[functions, more_functions])`, `cw.register(functions)` and `plugins=[functions]` all work. `registry.include(other)` merges two registries.
 - **Arguments.** `with:` arguments are passed by name and checked against the type hints. A parameter without a default is required, and a wrong type fails with E403. The return value is checked against the return annotation (E407).
 - **`prev`.** Add a `prev` parameter to receive the previous step's output. Its annotation is checked too.

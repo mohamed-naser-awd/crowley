@@ -49,7 +49,7 @@ Every template has at least one operation. Callers always run one operation at a
 | `authors` | | string[] | |
 | `license` | | string | SPDX id. |
 | `homepage` | | string (uri) | |
-| `requires` | | string[] | Non-stdlib functions the template needs (§11.6). |
+| `requires` | | string[] | Optional. Non-built-in functions, adapters and extractors the template needs, with version ranges (§11.6). |
 | `secrets` | | map | Secrets the template needs (§3.3). Shared by all operations. |
 | `permissions` | ✅ | object | Hosts the template may contact (§4). |
 | `defaults` | | object | Default arguments, by namespace (§5). |
@@ -821,13 +821,13 @@ operations:
     ```
   - Entry points (group `crowley.plugins`) load **only** with `load_entry_points=True`.
 - A plugin owns its namespace. Registering into a reserved or already-taken namespace causes `E901` at startup.
-- `requires` lists everything the template needs beyond the built-ins:
+- `requires` is **optional**. It declares what the template needs beyond the built-ins, with version ranges:
   - functions: `"mycorp.decode_token@^1"`, `"mycorp.*@^2"`,
   - adapters: `"adapter:ws@^1"`,
   - extractors: `"extractor:pdf@^1"`.
-  
-  Built-in functions, adapters and extractors don't need to be declared. A missing entry or an incompatible version causes `E302`.
-- A function used in a template but not in the stdlib and not listed in `requires` causes `E301`.
+
+  A declared entry that isn't registered, or is registered with a version outside the range, causes `E302`. Use `requires` to pin versions, and to make shared templates (e.g. on the hub) state their dependencies.
+- Any function registered on the `Crowley` instance can be used without being listed. Using a function that isn't registered at all causes `E301`, with a "did you mean" hint.
 
 ---
 
@@ -955,7 +955,7 @@ process = cw.init(tpl, "op", adapters={"http": FakeHttp()}) # per-process overri
 - Adapter names follow the function-namespace rules (§1). Two adapters with the same name cause `E906`, unless `replace=` is used.
 - `replace="<name>"` requires a compatible contract: same major `version`, and `request_schema`/`response_schema` accepting the same shapes. Otherwise `E906`. Templates keep working unchanged.
 - A per-process override follows the same compatibility rule and only affects that process. It can only replace an adapter that is already registered (`E906` otherwise).
-- Templates declare non-built-in adapters in `requires: ["adapter:ws@^1"]`. A missing adapter or incompatible version causes `E302`. Using a non-built-in adapter's functions without declaring it causes `E301`.
+- Templates MAY declare non-built-in adapters in `requires: ["adapter:ws@^1"]`. A declared adapter that is missing or has an incompatible version causes `E302`.
 - An adapter's `functions()` are registered in its own namespace when the adapter is registered.
 
 ### 13.3 Exchange pipeline
@@ -1104,7 +1104,7 @@ class BaseExtractor(ABC):
   - `Crowley(extractors=[...])`,
   - `cw.register_extractor(x)` or `cw.register_extractor(x, replace="html")` (compatible `query_languages` and `attributes` required, else `E906`),
   - per-process `cw.init(..., extractors={...})`,
-  - templates declare non-built-in extractors with `requires: ["extractor:pdf@^1"]`.
+  - templates may pin non-built-in extractors with `requires: ["extractor:pdf@^1"]`.
 
 ### 13.9 Field extraction engine
 
@@ -1224,7 +1224,7 @@ Stages 1–3 run once per template. The compiled template is immutable and reusa
 
 | Code | Check |
 |---|---|
-| E301 | Unknown function / not in stdlib and not in `requires` |
+| E301 | Unknown function (not registered, or an unknown `local.*` template function) |
 | E302 | A required function is missing or has an incompatible version |
 | E303 | Literal `with:` values violate the function's input schema. Expression-valued properties are validated only for presence. |
 | E304 | `do:` on a plain function, or missing `do:` on a block function |

@@ -388,14 +388,6 @@ class _Run:
             if step.body is not None:
                 self.walk_block(step.body, replace(ctx, in_loop=True, is_owner=True))
             return
-        if not spec.builtin and not step.is_local_call and not self.covered_by_requires(spec):
-            self.diag(
-                "E301",
-                f"{spec.name!r} is not built in; declare it in 'requires'",
-                step.path.key("use"),
-                step.location,
-                hint=f"requires: [{self.requirement_hint(spec)!r}]",
-            )
         if spec.kind is FunctionKind.BLOCK and step.body is None:
             self.diag(
                 "E304", f"{spec.name} is a block function and needs 'do:'", step.path, step.location
@@ -438,23 +430,6 @@ class _Run:
                 hint=_suggest(step.uses, self.registry.functions),
             )
         return spec
-
-    def covered_by_requires(self, spec: FunctionSpec) -> bool:
-        for requirement in self.template.requires:
-            if requirement.kind == "function" and requirement.matches_name(spec.name):
-                return True
-            if requirement.kind == "adapter" and requirement.name == spec.adapter:
-                return True
-            if requirement.kind == "extractor" and requirement.name == spec.extractor:
-                return True
-        return False
-
-    def requirement_hint(self, spec: FunctionSpec) -> str:
-        if spec.adapter:
-            return f"adapter:{spec.adapter}@^{spec.version.major}"
-        if spec.extractor:
-            return f"extractor:{spec.extractor}@^{spec.version.major}"
-        return f"{spec.name}@^{spec.version.major}"
 
     def check_template_call(self, step: UseStep, ctx: _Ctx) -> None:
         ref = step.template_ref

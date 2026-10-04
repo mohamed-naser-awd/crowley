@@ -76,7 +76,7 @@ Developers keep full control at runtime through **notifiers**. Every step, funct
 5. As an integrator running several operations at once, I give each process its own notifiers (`process.add_notifier`) and share common bundles (`process.add_notifier_registry`), while global notifiers still apply to all of them.
 6. As an integrator, I attach a `step.after` notifier to a specific step id to fix data before it continues through the template.
 7. As an integrator, I stream items one at a time (`async for item in crowley.stream(...)`) for large crawls.
-8. As a plugin author, I register `mycorp.*` functions with input and output schemas. Templates declare `requires: [mycorp.x@^1]`, and Crowley refuses to run them if the plugin is missing.
+8. As a plugin author, I register `mycorp.*` functions with input and output schemas. Templates may declare `requires: [mycorp.x@^1]` to pin a version range, and Crowley refuses to run them if the plugin is missing or incompatible.
 9. As an integrator running third-party templates, I trust that a template can only contact the hosts it declares and can't reach my private network.
 
 ## 7. Functional requirements

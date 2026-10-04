@@ -168,7 +168,7 @@ functions:
     assert sorted(codes(report)) == ["E303", "E303", "E315"]
 
 
-def test_requires_coverage_for_plugins() -> None:
+def test_requires_is_optional_for_registered_plugins() -> None:
     class Ws(BaseAdapter):
         name: ClassVar[str] = "ws"
         version: ClassVar[str] = "1.0.0"
@@ -202,18 +202,15 @@ def test_requires_coverage_for_plugins() -> None:
         "- use: mycorp.decode\n- use: ws.send\n  with: {url: 'wss://evil.com/'}\n- use: pdf.parse"
     )
     report = check(crowley, template(steps))
-    assert codes(report).count("E301") == 3
-    hints = {d.hint for d in report.diagnostics if d.code == "E301"}
-    assert hints == {
-        "requires: ['mycorp.decode@^1']",
-        "requires: ['adapter:ws@^1']",
-        "requires: ['extractor:pdf@^1']",
-    }
-    assert "E318" in codes(report)
-    covered = template(
+    assert codes(report) == ["E318"]  # registered functions need no requires
+    pinned = template(
         steps, extra='requires: [mycorp.decode@^1, "adapter:ws@^1", "extractor:pdf"]\n'
     )
-    assert codes(check(crowley, covered)) == ["E318"]
+    assert codes(check(crowley, pinned)) == ["E318"]
+    too_new = template(steps, extra='requires: ["mycorp.decode@^2"]\n')
+    assert codes(check(crowley, too_new)) == ["E302", "E318"]
+    unknown = template("- use: mycorp.missing")
+    assert codes(check(crowley, unknown)) == ["E301"]
 
 
 def test_template_level_checks(crowley: Crowley) -> None:
