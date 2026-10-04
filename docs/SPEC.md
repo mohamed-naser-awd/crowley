@@ -636,6 +636,7 @@ def clean_price(text: str, currency: str = "£") -> float: ...
 - **Overrides.** Explicit `input=`/`output=`/`prev=` replace the inferred schemas.
 - **Context.** A handler receives the `FunctionContext` only if its first parameter asks for it: named `ctx`/`context`, or annotated `FunctionContext`. Block functions must take it.
 - **Registration.** `Crowley(functions=[...])` and `crowley.register(...)` also accept plain, undecorated functions. A decorated function stays callable as plain Python.
+- **`FunctionRegistry(namespace="app")`** bundles functions, usually in their own module, through `@registry.function` (same forms as `@function`). Functions named without a namespace go into the registry's namespace. Pass a registry to `Crowley(functions=registry)` (alone or in the list), to `crowley.register(registry)`, or as a plugin. `registry.include(other)` merges registries. A name used twice in one registry causes `E901`.
 
 **Calling convention: everything is a keyword argument.** Crowley calls every handler as
 

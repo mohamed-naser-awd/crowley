@@ -16,6 +16,7 @@ First public release.
 - Processes (`Crowley.init`) with `run`, `stream`, `start`/`result`, `cancel` and `run_sync`; many processes can run concurrently.
 - Notifiers on every step, function call, page, exchange, emitted item and the run itself, at global, `NotifierRegistry` and process scope, with skip/replace/retry/abort actions and revalidation.
 - Functions from plain Python: `@crowley.function` (or `@function`) infers argument, `prev` and result schemas from type hints (`Annotated[..., Schema(...)]` for constraints). `ctx` is optional, functions are named `app.<name>` by default, and plain functions can be passed to `Crowley(functions=[...])`.
+- `FunctionRegistry`: bundle functions in their own module (`@functions.function`) and pass the registry to `Crowley(functions=...)`.
 - Handlers receive validated keyword arguments plus `prev`, with signature checks; block functions use `ctx.body`; lazy arguments.
 - JSON Schema validation of inputs, function arguments and results, emitted items and the output; limits on requests, items, depth, loop iterations, duration, response size and retries; secrets masked in errors and events.
 

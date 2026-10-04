@@ -8,6 +8,7 @@ from crowley.application.adapters import BaseAdapter
 from crowley.application.extractors import BaseExtractor, extractor_functions
 from crowley.application.registry.functions import (
     DEFAULT_NAMESPACE,
+    FunctionRegistry,
     Handler,
     HandlerBinding,
     RegisteredFunction,
@@ -214,6 +215,7 @@ class Registry:
 
 __all__ = [
     "DEFAULT_NAMESPACE",
+    "FunctionRegistry",
     "Handler",
     "HandlerBinding",
     "Plugin",

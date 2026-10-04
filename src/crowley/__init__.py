@@ -9,6 +9,7 @@ from crowley.application.adapters import BaseAdapter
 from crowley.application.events import Notifier, NotifierHandle, NotifierRegistry
 from crowley.application.extractors import BaseExtractor
 from crowley.application.registry import (
+    FunctionRegistry,
     Plugin,
     RegisteredFunction,
     Registry,
@@ -37,6 +38,7 @@ __all__ = [
     "Event",
     "FunctionContext",
     "FunctionKind",
+    "FunctionRegistry",
     "FunctionSpec",
     "Limits",
     "Notifier",

@@ -22,6 +22,7 @@ from crowley.application.ports import (
     TemplateText,
 )
 from crowley.application.registry import (
+    FunctionRegistry,
     Plugin,
     RegisteredFunction,
     Registry,
@@ -76,7 +77,8 @@ class Crowley(NotifierScope):
         self,
         *,
         sources: Iterable[TemplateSource] = (),
-        functions: Iterable[FunctionSpec | RegisteredFunction | Callable[..., Any]] = (),
+        functions: FunctionRegistry
+        | Iterable[FunctionSpec | RegisteredFunction | FunctionRegistry | Callable[..., Any]] = (),
         adapters: Iterable[BaseAdapter] = (),
         extractors: Iterable[BaseExtractor] = (),
         plugins: Iterable[Plugin] = (),
@@ -104,7 +106,10 @@ class Crowley(NotifierScope):
         for plugin in plugins:
             self.registry.install(plugin)
         for fn in functions:
-            self.register_function(fn)
+            if isinstance(fn, FunctionRegistry):
+                self.register_functions(fn)
+            else:
+                self.register_function(fn)
         for helper in helpers:
             self.registry.add_helper(helper)
         schemas = JsonSchemaValidator()
@@ -148,7 +153,17 @@ class Crowley(NotifierScope):
         self.registry.add_function(registered, replace=replace)
         return registered
 
-    register = register_function
+    def register_functions(self, functions: FunctionRegistry) -> None:
+        """Register every function of a :class:`FunctionRegistry`."""
+        for fn in functions:
+            self.register_function(fn)
+
+    def register(self, item: Any, *, replace: bool = False) -> Any:
+        """Register a function (plain, decorated or spec) or a whole :class:`FunctionRegistry`."""
+        if isinstance(item, FunctionRegistry):
+            self.register_functions(item)
+            return item
+        return self.register_function(item, replace=replace)
 
     def function(
         self, handler_or_name: Callable[..., Any] | str | None = None, /, **options: Any

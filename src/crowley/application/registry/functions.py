@@ -14,7 +14,7 @@ The signature is inspected once, at registration (docs/SPEC.md §11.1).
 """
 
 import inspect
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, overload
 
@@ -119,6 +119,84 @@ class RegisteredFunction:
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """The decorated function stays callable (and testable) as plain Python."""
         return self.handler(*args, **kwargs)
+
+
+class FunctionRegistry:
+    """A reusable, named bundle of functions, usually defined in its own module.
+
+    ::
+
+        # scraping/functions.py
+        functions = FunctionRegistry("acme")
+
+        @functions.function
+        def clean_price(text: str) -> float:     # registered as acme.clean_price
+            ...
+
+        # main.py
+        cw = Crowley(functions=functions)        # or cw.register(functions), plugins=[functions]
+
+    Functions named without a namespace go into the registry's ``namespace``.
+    """
+
+    def __init__(self, namespace: str = DEFAULT_NAMESPACE) -> None:
+        if not is_function_name(f"{namespace}.x"):
+            raise ConfigurationError("E903", f"invalid function namespace {namespace!r}")
+        self.namespace = namespace
+        self._functions: dict[str, RegisteredFunction | FunctionSpec] = {}
+
+    def function(self, handler_or_name: Handler | str | None = None, /, **options: Any) -> Any:
+        """Decorator: ``@functions.function``, ``@functions.function("x")`` or with options."""
+        if callable(handler_or_name):
+            return self.add(handler_or_name, **options)
+
+        def decorate(handler: Handler) -> Any:
+            if isinstance(handler_or_name, str):
+                options.setdefault("name", handler_or_name)
+            return self.add(handler, **options)
+
+        return decorate
+
+    def add(self, fn: Handler | RegisteredFunction | FunctionSpec, **options: Any) -> Any:
+        """Add a function (plain, decorated or a spec). Returns what was stored."""
+        if isinstance(fn, RegisteredFunction | FunctionSpec):
+            item: RegisteredFunction | FunctionSpec = fn
+        else:
+            name = options.pop("name", None) or fn.__name__
+            if "." not in name:
+                name = f"{self.namespace}.{name}"
+            item = function(name=name, **options)(fn)
+        if item.name in self._functions:
+            raise ConfigurationError(
+                "E901", f"function {item.name!r} is already in registry {self.namespace!r}"
+            )
+        self._functions[item.name] = item
+        return item
+
+    def include(self, other: "FunctionRegistry") -> None:
+        """Copy every function of another registry into this one."""
+        for item in other:
+            self.add(item)
+
+    def register(self, registry: Any) -> None:
+        """Plugin protocol: install every function into a Crowley ``Registry``."""
+        for item in self:
+            registry.add_function(item)
+
+    def __iter__(self) -> Iterator[RegisteredFunction | FunctionSpec]:
+        return iter(list(self._functions.values()))
+
+    def __len__(self) -> int:
+        return len(self._functions)
+
+    def __contains__(self, name: object) -> bool:
+        return name in self._functions
+
+    def __getitem__(self, name: str) -> RegisteredFunction | FunctionSpec:
+        return self._functions[name]
+
+    def __repr__(self) -> str:
+        return f"FunctionRegistry({self.namespace!r}, {len(self)} function(s))"
 
 
 def as_registered(

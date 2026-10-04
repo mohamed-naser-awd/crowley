@@ -165,34 +165,45 @@ Every extractor provides `<name>.parse`, `.select`, `.select_all` and `.extract`
 
 ### Your own functions
 
-Write a normal Python function with type hints and register it with a decorator. The type hints become the argument and result schemas:
+Keep your functions in their own module, collected in a `FunctionRegistry`, and pass the registry to Crowley. Type hints become the argument and result schemas:
 
 ```python
-from crowley import Crowley
+# scraping/functions.py
+from crowley import FunctionRegistry
 
-cw = Crowley()
+functions = FunctionRegistry("acme")  # namespace: functions are acme.<name>
 
 
-@cw.function
+@functions.function
 def clean_price(text: str, currency: str = "£") -> float:
     return float(text.replace(currency, "").strip())
 ```
 
+```python
+# main.py
+from crowley import Crowley
+
+from scraping.functions import functions
+
+cw = Crowley(functions=functions)
+```
+
 ```yaml
-requires: ["app.*@^1"]            # templates declare the functions they need
+requires: ["acme.*@^1"]           # templates declare the functions they need
 ...
-          - use: app.clean_price
+          - use: acme.clean_price
             with: { text: "${{ book.price }}" }
 ```
 
-- **Naming.** `@cw.function` registers `app.<function name>`. Use `@cw.function("acme.clean_price")` for your own namespace.
+- **Naming.** A function is `<namespace>.<function name>`. `@functions.function("other_name")` renames it, and a full name like `"tools.count"` sets another namespace. `FunctionRegistry()` without a namespace uses `app`.
+- **Combining.** `Crowley(functions=[functions, more_functions])`, `cw.register(functions)` and `plugins=[functions]` all work. `registry.include(other)` merges two registries.
 - **Arguments.** `with:` arguments are passed by name and checked against the type hints. A parameter without a default is required, and a wrong type fails with E403. The return value is checked against the return annotation (E407).
 - **`prev`.** Add a `prev` parameter to receive the previous step's output. Its annotation is checked too.
 - **Context.** A function gets the context only if its first parameter asks for it (`ctx` or `ctx: FunctionContext`). Through `ctx` it can call `ctx.exchange(...)` (all I/O goes through adapters), `ctx.extractor(...)`, `ctx.evaluate(...)` for lazy arguments, `ctx.body.run(...)` for block functions and `ctx.emit_event(...)`.
 - **Other forms.**
   - Sync and async functions both work.
   - Add constraints with `Annotated[int, Schema(minimum=1)]`.
-  - `@function` (imported from `crowley`) declares a function without registering it.
+  - For quick scripts, `@cw.function` registers straight on a `Crowley` instance (as `app.<name>`).
   - `Crowley(functions=[f, g])` and `cw.register(f)` accept plain functions too.
   - `input=` / `output=` JSON Schemas override the inferred ones.
 
