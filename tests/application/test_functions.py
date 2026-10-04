@@ -171,6 +171,10 @@ async def test_sync_handlers_run_in_a_thread() -> None:
     assert (await run(tpl)).prev == "ABC"
 
 
+async def _block_without_ctx(**kwargs: Any) -> None:
+    return None
+
+
 def spec(name: str = "acme.f", **kwargs: Any) -> FunctionSpec:
     return FunctionSpec(name=name, version=SemVer.parse("1.0.0"), **kwargs)
 
@@ -178,8 +182,8 @@ def spec(name: str = "acme.f", **kwargs: Any) -> FunctionSpec:
 @pytest.mark.parametrize(
     ("handler", "kind", "message"),
     [
-        (lambda: None, FunctionKind.PLAIN, "function context as its first parameter"),
-        (lambda *, ctx: None, FunctionKind.PLAIN, "first parameter"),
+        (lambda *, ctx: None, FunctionKind.PLAIN, "has no default"),
+        (_block_without_ctx, FunctionKind.BLOCK, "take the function context first"),
         (lambda ctx, needed: None, FunctionKind.PLAIN, "has no default"),
         (lambda ctx, a, /: None, FunctionKind.PLAIN, "positional-only"),
         (lambda ctx, **kw: None, FunctionKind.BLOCK, "must be async"),

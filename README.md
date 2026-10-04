@@ -163,23 +163,41 @@ Every extractor provides `<name>.parse`, `.select`, `.select_all` and `.extract`
 
 ## Extending Crowley
 
+### Your own functions
+
+Write a normal Python function with type hints and register it with a decorator. The type hints become the argument and result schemas:
+
 ```python
-from crowley import Crowley, FunctionContext, function
+from crowley import Crowley
+
+cw = Crowley()
 
 
-@function(
-    name="acme.slugify",
-    input={"type": "object", "properties": {"text": {"type": "string"}}},
-    output={"type": "string"},
-)
-async def slugify(ctx: FunctionContext, text: str | None = None, prev=None) -> str:
-    return (text or prev).lower().replace(" ", "-")
-
-
-cw = Crowley(functions=[slugify])  # templates declare it with requires: ["acme.*@^1"]
+@cw.function
+def clean_price(text: str, currency: str = "£") -> float:
+    return float(text.replace(currency, "").strip())
 ```
 
-- **Functions** receive `handler(ctx, **kwargs)`: the validated `with:` arguments plus `prev`. A handler takes only the arguments it names. Through `ctx` they can call `ctx.exchange(...)` (all I/O goes through adapters), `ctx.extractor(...)`, `ctx.evaluate(...)` for lazy arguments, `ctx.body.run(...)` for block functions, and `ctx.emit_event(...)`.
+```yaml
+requires: ["app.*@^1"]            # templates declare the functions they need
+...
+          - use: app.clean_price
+            with: { text: "${{ book.price }}" }
+```
+
+- **Naming.** `@cw.function` registers `app.<function name>`. Use `@cw.function("acme.clean_price")` for your own namespace.
+- **Arguments.** `with:` arguments are passed by name and checked against the type hints. A parameter without a default is required, and a wrong type fails with E403. The return value is checked against the return annotation (E407).
+- **`prev`.** Add a `prev` parameter to receive the previous step's output. Its annotation is checked too.
+- **Context.** A function gets the context only if its first parameter asks for it (`ctx` or `ctx: FunctionContext`). Through `ctx` it can call `ctx.exchange(...)` (all I/O goes through adapters), `ctx.extractor(...)`, `ctx.evaluate(...)` for lazy arguments, `ctx.body.run(...)` for block functions and `ctx.emit_event(...)`.
+- **Other forms.**
+  - Sync and async functions both work.
+  - Add constraints with `Annotated[int, Schema(minimum=1)]`.
+  - `@function` (imported from `crowley`) declares a function without registering it.
+  - `Crowley(functions=[f, g])` and `cw.register(f)` accept plain functions too.
+  - `input=` / `output=` JSON Schemas override the inferred ones.
+
+### Adapters and extractors
+
 - **Adapters** (new protocols): subclass `BaseAdapter` and implement `send`. Permissions, limits, rate limits, retries and notifiers come from the shared pipeline.
 - **Extractors** (new formats): subclass `BaseExtractor` and implement `parse`, `select` and `read`. The field engine, the generated functions and `extract.auto` routing come for free.
 - **Swap a built-in:** `cw.register_adapter(MyHttp(), replace="http")`. To swap one only for a single run, use `cw.init(..., adapters={"http": MyHttp()})`.

@@ -257,11 +257,12 @@ class FunctionInvoker:
             extractors=self._extractors,
         )
         bound = fn.binding.bind(kwargs)
+        context = (ctx,) if fn.binding.wants_ctx else ()
         try:
             if fn.binding.is_async:
-                result = await fn.handler(ctx, **bound)
+                result = await fn.handler(*context, **bound)
             else:
-                result = await asyncio.to_thread(fn.handler, ctx, **bound)
+                result = await asyncio.to_thread(fn.handler, *context, **bound)
                 if inspect.isawaitable(result):
                     result = await result
         except CrowleyError:

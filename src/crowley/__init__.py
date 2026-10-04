@@ -8,7 +8,13 @@ __version__ = "0.1.0"
 from crowley.application.adapters import BaseAdapter
 from crowley.application.events import Notifier, NotifierHandle, NotifierRegistry
 from crowley.application.extractors import BaseExtractor
-from crowley.application.registry import Plugin, RegisteredFunction, Registry, function
+from crowley.application.registry import (
+    Plugin,
+    RegisteredFunction,
+    Registry,
+    Schema,
+    function,
+)
 from crowley.application.runtime import Body, FunctionContext
 from crowley.application.use_cases import Process, RunResult
 from crowley.domain.errors import CrowleyError, Diagnostic, ValidationReport
@@ -44,6 +50,7 @@ __all__ = [
     "Requirement",
     "Retry",
     "RunResult",
+    "Schema",
     "Skip",
     "Template",
     "ValidationReport",

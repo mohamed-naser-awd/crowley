@@ -623,6 +623,20 @@ Every function, built-in or custom, is described by a `FunctionSpec`:
 | `x-crowley-from-prev: true` | Filled from `prev` when omitted. |
 | `x-crowley-target: true` | The argument is an exchange target URL. For network adapters, literal hosts are checked against `permissions.hosts` at validation time (`E318`). |
 
+**Declaring functions from Python.** In the shortest form, type hints are the contract:
+
+```python
+@crowley.function                      # registers app.clean_price
+def clean_price(text: str, currency: str = "£") -> float: ...
+```
+
+- **Name.** Without one, the name is `app.<function name>` (`DEFAULT_NAMESPACE`). `@function("acme.x")` sets it.
+- **Inferred schemas.** The `input` schema comes from the parameters: annotations become types, parameters without defaults are `required`, JSON-scalar defaults become `default`, and `additionalProperties: false` applies unless the handler takes `**kwargs`. The `prev` parameter's annotation becomes the `prev` schema, and the return annotation becomes `output`. Unannotated or unknown types accept anything.
+- **Supported annotations:** `str`, `int`, `float`, `bool`, `None`, `list[T]`, `set[T]`, `tuple[...]`, `dict[str, T]`, unions/`Optional`, `Literal`, `Enum`, `TypedDict`, and `Annotated[T, Schema(**keywords)]` (or a description string).
+- **Overrides.** Explicit `input=`/`output=`/`prev=` replace the inferred schemas.
+- **Context.** A handler receives the `FunctionContext` only if its first parameter asks for it: named `ctx`/`context`, or annotated `FunctionContext`. Block functions must take it.
+- **Registration.** `Crowley(functions=[...])` and `crowley.register(...)` also accept plain, undecorated functions. A decorated function stays callable as plain Python.
+
 **Calling convention: everything is a keyword argument.** Crowley calls every handler as
 
 ```python

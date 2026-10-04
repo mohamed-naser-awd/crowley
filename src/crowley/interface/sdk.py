@@ -6,7 +6,7 @@ processes (``init``) that run one operation each (docs/SPEC.md §17.3, §20).
 
 import asyncio
 import concurrent.futures
-from collections.abc import AsyncIterator, Coroutine, Iterable, Mapping
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterable, Mapping
 from typing import Any, TypeVar
 
 from crowley.adapters.http import HttpAdapter
@@ -21,7 +21,13 @@ from crowley.application.ports import (
     TemplateSource,
     TemplateText,
 )
-from crowley.application.registry import Plugin, RegisteredFunction, Registry
+from crowley.application.registry import (
+    Plugin,
+    RegisteredFunction,
+    Registry,
+    as_registered,
+)
+from crowley.application.registry import function as declare
 from crowley.application.use_cases import (
     LoadTemplate,
     Process,
@@ -70,7 +76,7 @@ class Crowley(NotifierScope):
         self,
         *,
         sources: Iterable[TemplateSource] = (),
-        functions: Iterable[FunctionSpec | RegisteredFunction] = (),
+        functions: Iterable[FunctionSpec | RegisteredFunction | Callable[..., Any]] = (),
         adapters: Iterable[BaseAdapter] = (),
         extractors: Iterable[BaseExtractor] = (),
         plugins: Iterable[Plugin] = (),
@@ -131,12 +137,38 @@ class Crowley(NotifierScope):
 
     # ── registration ──────────────────────────────────────────────────────────
     def register_function(
-        self, function: FunctionSpec | RegisteredFunction, *, replace: bool = False
-    ) -> None:
-        """Register a function: a ``@function``-decorated handler, or a bare spec."""
-        self.registry.add_function(function, replace=replace)
+        self,
+        function: FunctionSpec | RegisteredFunction | Callable[..., Any],
+        *,
+        replace: bool = False,
+    ) -> RegisteredFunction | FunctionSpec:
+        """Register a function: a plain Python function (schemas from its type hints, named
+        ``app.<name>``), a ``@function``-decorated one, or a bare spec."""
+        registered = as_registered(function)
+        self.registry.add_function(registered, replace=replace)
+        return registered
 
     register = register_function
+
+    def function(
+        self, handler_or_name: Callable[..., Any] | str | None = None, /, **options: Any
+    ) -> Any:
+        """Decorator that declares and registers a function in one go.
+
+        ``@crowley.function``, ``@crowley.function("acme.slugify")`` or
+        ``@crowley.function(name=..., input=..., output=...)``; see :func:`crowley.function`.
+        """
+        if callable(handler_or_name):
+            return self.register_function(declare(handler_or_name, **options))
+
+        def decorate(handler: Callable[..., Any]) -> RegisteredFunction:
+            if isinstance(handler_or_name, str):
+                options.setdefault("name", handler_or_name)
+            registered = declare(**options)(handler)
+            self.register_function(registered)
+            return registered
+
+        return decorate
 
     def register_adapter(self, adapter: BaseAdapter, *, replace: str | None = None) -> None:
         self.registry.add_adapter(adapter, replace=replace)
