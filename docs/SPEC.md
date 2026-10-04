@@ -568,6 +568,25 @@ object      := '{' (key ':' expr (',' key ':' expr)*)? '}'                   # k
 | Dates | `now()` (UTC ISO-8601), `parse_date(s, format=null, tz='UTC')` → ISO-8601, `format_date(iso, format)` |
 | Misc | `uuid()` |
 
+**Precise semantics:**
+
+| Helper | Behaviour |
+|---|---|
+| `str` | Strings are unchanged. Anything else becomes its JSON form (`null`, `true`, `[1,2]`). |
+| `int` | Floats are truncated toward zero. Integer strings are parsed. Booleans and null raise `E501`. |
+| `bool` | Accepts booleans, `0`/`1`, and `true`/`false`/`yes`/`no`/`1`/`0` text. |
+| `regex_match` | `true` if the pattern matches **anywhere** in the string (search). |
+| `regex_find_all` | Returns whole matches, or a list of groups per match when the pattern has groups. |
+| `round(x, n=0)` | Rounds half away from zero. Returns an `int` when `n` is 0. |
+| `min`/`max` | Take a list, or two or more arguments. |
+| `parse_number(s, locale)` | `locale` is `en` (`1,234.5`) or `de`/`eu` (`1.234,5`). Handles `k`/`M`/`B` suffixes and surrounding text such as currency signs or `12 kg`. Integral results are `int`. |
+| `any`/`all` | The function is optional. Without it, the items themselves must be booleans. |
+| `map`, `filter`, `find`, `any`, `all`, `sort_by`, `group_by` | A two-parameter lambda `(x, i) => …` also receives the index. Predicates MUST return booleans. |
+| `get(o, path, default)` | `path` is `'a.b[0].c'` or a list of keys and indexes. Any missing step returns `default`. |
+| `parse_date(s, format=null, tz='UTC')` | `format` is a Python **strftime** pattern. Without it, ISO-8601 is expected. Naive times are interpreted in `tz`. The result is always UTC ISO-8601 with a `Z` suffix. |
+| `format_date(iso, format, tz='UTC')` | Formats with a strftime pattern in `tz`. |
+| Timezones | `tz` accepts `UTC`, fixed offsets (`+05:30`, `-0800`) or IANA names (`Europe/Berlin`). |
+
 - Integrators and plugins MAY register more helpers. A helper MUST be pure and deterministic. `now()` and `uuid()` are the only exceptions, and they go through the `Clock` and `RandomSource` ports so tests can stub them.
 - Calling an unknown helper causes `E313`. A wrong number of arguments causes `E314`. Both are static errors.
 

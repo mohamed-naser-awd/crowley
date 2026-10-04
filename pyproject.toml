@@ -31,6 +31,7 @@ dependencies = [
     "python-jsonpath>=1.2",
     "regex>=2024.9",
     "ruamel.yaml>=0.18",
+    "tzdata>=2024.1",
 ]
 
 [project.scripts]
@@ -46,6 +47,7 @@ dev = [
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
     "respx>=0.21",
+    "types-regex>=2024.9",
     "ruff>=0.8",
 ]
 
