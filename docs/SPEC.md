@@ -369,7 +369,7 @@ Every step is a mapping with **exactly one** kind key (§7.2). It can also have:
   max_iterations: 30   # REQUIRED (E202 if missing), capped by limits.max_loop_iterations
   do: [ ... ]
 ```
-- The condition is evaluated before each iteration. The result is built the same way as for `for_each`.
+- The condition is evaluated before each iteration. The result is built the same way as for `for_each`. Inside the condition, `prev` is the loop's current `prev` (§8.4).
 - `loop` exposes `index` and `first`.
 - Reaching `max_iterations` while the condition is still true fails with `E702`. To end silently, use `break`.
 
@@ -1424,6 +1424,14 @@ Actions are returned from the notifier:
 - `event.abort(reason)`, which fails the run with `E801`.
 
 The first action returned wins, and later interceptors for that event don't run. Returning `None` passes the event to the next notifier.
+
+How the step pipeline applies them:
+- `step.before` → `skip(result)`: the step doesn't run and `step.skipped` fires. With no `result`, it behaves like `when: false` (the incoming `prev` passes through and `steps.<id>` is `null`). With a `result`, that value becomes the step's result and outgoing `prev`.
+- `step.before` → `replace(value)`: the step doesn't run. `value` is its result, and `step.after` still fires with it.
+- `step.error` → `retry(after)`: the step runs again, after `after` seconds. Each attempt fires its own `step.before` and its own `step.after`/`step.error`, and `with:` arguments are re-evaluated.
+- `step.error` → `replace(value)`: the error is recovered and `value` becomes the step's result.
+- `step.error` still fires for `E7xx` and `E8xx` errors (limits, aborts, cancellation), but its `retry`/`replace` actions are ignored. These errors always end the run.
+- Retries from notifiers and from `on_error.retry` together count toward `limits.max_retries_per_step`.
 
 #### Revalidation
 

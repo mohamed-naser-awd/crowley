@@ -106,6 +106,13 @@ class Crowley:
         """A validated template. Raises the first error (others attached as ``related``)."""
         return _run_sync(self.load_async(ref))
 
+    def load_text(self, text: str, *, name: str = "<memory>") -> Template:
+        """A validated template from text that is not stored anywhere. Raises the first error."""
+        result = self._validate.text(TemplateText(text=text, origin=Origin(name=name)))
+        result.report.raise_if_errors()
+        assert result.template is not None
+        return result.template
+
     def validate_text(self, text: str, *, name: str = "<memory>") -> ValidationReport:
         """Validate template text that is not stored anywhere."""
         return self._validate.text(TemplateText(text=text, origin=Origin(name=name))).report
