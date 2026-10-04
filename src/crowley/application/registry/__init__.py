@@ -7,11 +7,14 @@ from typing import Protocol
 from crowley.application.adapters import BaseAdapter
 from crowley.application.extractors import BaseExtractor, extractor_functions
 from crowley.application.registry.functions import (
+    DEFAULT_NAMESPACE,
     Handler,
     HandlerBinding,
     RegisteredFunction,
+    as_registered,
     function,
 )
+from crowley.application.registry.inference import Schema, infer_schemas, type_to_schema
 from crowley.domain.common import RESERVED_NAMESPACES
 from crowley.domain.errors import ConfigurationError
 from crowley.domain.expressions import HelperSpec, HelperTable
@@ -210,12 +213,17 @@ class Registry:
 
 
 __all__ = [
+    "DEFAULT_NAMESPACE",
     "Handler",
     "HandlerBinding",
     "Plugin",
     "RegisteredFunction",
     "Registry",
+    "Schema",
     "adapter_replace_problem",
+    "as_registered",
     "extractor_replace_problem",
     "function",
+    "infer_schemas",
+    "type_to_schema",
 ]
