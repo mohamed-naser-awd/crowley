@@ -30,6 +30,7 @@ class CrowleyError(Exception):
         hint: str | None = None,
         cause: BaseException | None = None,
         related: tuple["CrowleyError", ...] = (),
+        user_code: str | None = None,
     ) -> None:
         entry = lookup(code)
         if self.error_class is not None and entry.error_class is not self.error_class:
@@ -43,6 +44,8 @@ class CrowleyError(Exception):
         self.hint = hint
         self.cause = cause
         self.related = related
+        self.user_code = user_code
+        """Template-defined code of a ``fail`` step (``error.user_code``)."""
         if cause is not None:
             self.__cause__ = cause
 
@@ -54,6 +57,15 @@ class CrowleyError(Exception):
     def catchable(self) -> bool:
         """Whether a step's ``on_error`` policy may handle this error."""
         return self.entry.catchable
+
+    def as_value(self) -> dict[str, Any]:
+        """The ``error`` object visible to ``on_error`` expressions (SPEC §16.3)."""
+        return {
+            "code": self.code,
+            "message": self.message,
+            "path": self.path,
+            "user_code": self.user_code,
+        }
 
     @classmethod
     def from_code(cls, code: str, message: str, **kwargs: Any) -> "CrowleyError":
